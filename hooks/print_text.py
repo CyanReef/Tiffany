@@ -5,16 +5,16 @@ def register(bot: Bot) -> None:
     @bot.hook(needs=("text",))
     async def print_text(ctx):
         """
-        一个最小示例 hook：打印文本内容。
+        一个最小示例 hook：打印文本内容，并把同一段文本回复回去。
 
         为什么这里调用 await ctx.text()？
             因为 text 是懒解析字段。只有这个 hook 真的要看文本时，Context 才会从 raw 里提取文本。
 
-        为什么 needs 写 ("text",)？
-            现在 needs 还没有参与调度优化，但它表达了这个 hook 的意图：我关心文本。
-            以后做调试、性能统计、预筛选时，这个声明会很有价值。
+        为什么调用 await ctx.reply(text)？
+            hook 不直接操作 OneBot action，而是通过 Context 委托给当前消息绑定的 client。
         """
 
         text = await ctx.text()
-        if text != "" and text is not None:
+        if text:
             print("TEXT:", text)
+            await ctx.reply(text)

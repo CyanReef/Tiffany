@@ -1,4 +1,4 @@
-﻿"""
+"""
 Context 是 hook 看到的“消息视图”。
 
 它不是传统框架里的完整 Event 对象。传统 Event 往往会提前解析文本、图片、用户、群、
@@ -57,6 +57,17 @@ class Context:
 
         return self.envelope.raw
 
+    @property
+    def client(self):
+        """
+        返回当前消息可用的发送客户端。
+
+        adapter 如果支持回消息，会把 client 放进 Envelope。
+        Context 不关心具体平台，只把 reply(...) 委托给 client。
+        """
+
+        return self.envelope.client
+
     def stop(self):
         """
         停止后续 hook 继续处理这条消息。
@@ -67,6 +78,18 @@ class Context:
         """
 
         self.stopped = True
+
+    async def reply(self, text: str) -> None:
+        """
+        回复一条文本消息。
+
+        具体怎么发送由 client 决定；Context 只提供 hook 层统一调用入口。
+        """
+
+        if self.client is None:
+            raise RuntimeError("current context has no client, cannot reply")
+
+        await self.client.reply_text(self, text)
 
     async def get(self, key, parser):
         """

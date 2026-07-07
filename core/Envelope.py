@@ -1,4 +1,4 @@
-﻿"""
+"""
 Envelope 是框架接收到外部消息后的第一层包装。
 
 它的目标不是解析消息，而是“保留现场”：
@@ -26,6 +26,10 @@ class Envelope:
         平台发来的原始消息字典。这里不做全量解析，是整个轻量框架的关键。
         只有 hook 真的需要某个字段时，Context 才会从 raw 里按需读取。
 
+    client:
+        可选发送客户端。adapter 收到消息时可以把当前连接对应的 client 放进来，
+        这样 hook 就能通过 ctx.reply(...) 把消息发回同一个平台。
+
     为什么用 dataclass？
         Envelope 只是一个简单数据容器，用 dataclass 可以少写 __init__。
 
@@ -36,3 +40,4 @@ class Envelope:
 
     platform: str
     raw: dict[str, Any]
+    client: Any | None = None
