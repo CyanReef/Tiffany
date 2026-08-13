@@ -10,8 +10,9 @@ NapCat 发来的原始 JSON 长什么样，这里就尽量原样保存。
 3. raw 永远保留，方便调试，也方便以后处理平台特有字段。
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
+from uuid import uuid4
 
 
 @dataclass(slots=True)
@@ -30,6 +31,10 @@ class Envelope:
         可选发送客户端。adapter 收到消息时可以把当前连接对应的 client 放进来，
         这样 hook 就能通过 ctx.reply(...) 把消息发回同一个平台。
 
+    kind:
+        adapter 最小探测出的路由类型，例如 message、notice、request、response。
+        它只用于选择 hook，不代表 Core 理解平台事件模型。
+
     为什么用 dataclass？
         Envelope 只是一个简单数据容器，用 dataclass 可以少写 __init__。
 
@@ -41,3 +46,8 @@ class Envelope:
     platform: str
     raw: dict[str, Any]
     client: Any | None = None
+    kind: str = "event"
+    event_id: str = field(default_factory=lambda: uuid4().hex)
+    adapter_id: str = "application"
+    connection_id: str | None = None
+    session_id: str | None = None

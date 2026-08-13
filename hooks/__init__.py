@@ -1,10 +1,12 @@
 from core import Bot
 
-from .print_text import register as register_print_text
+from .command import register_command_provider
+from .ping import register as register_ping
 
 
 def register_hooks(bot: Bot) -> None:
-    register_print_text(bot)
+    register_command_provider(bot)
+    register_ping(bot)
 
 
 __all__ = ["register_hooks"]

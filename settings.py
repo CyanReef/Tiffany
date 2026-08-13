@@ -7,6 +7,24 @@ import tomllib
 class WebSocketConfig:
     host: str
     port: int
+    workers: int = 4
+    queue_size: int = 256
+    call_timeout: float = 30.0
+    pending_limit: int = 256
+
+    def __post_init__(self) -> None:
+        if self.workers < 1:
+            raise ValueError("adapter.websocket.workers must be at least 1")
+        if self.workers > 4:
+            raise ValueError("adapter.websocket.workers cannot exceed 4")
+        if self.queue_size < 1:
+            raise ValueError("adapter.websocket.queue_size must be at least 1")
+        if self.queue_size > 256:
+            raise ValueError("adapter.websocket.queue_size cannot exceed 256")
+        if self.call_timeout <= 0:
+            raise ValueError("adapter.websocket.call_timeout must be greater than zero")
+        if self.pending_limit < 1:
+            raise ValueError("adapter.websocket.pending_limit must be at least 1")
 
 
 @dataclass(slots=True)
@@ -44,6 +62,10 @@ def load_config(path: str | Path = "Tiffany.toml") -> AppConfig:
             websocket=WebSocketConfig(
                 host=data["adapter"]["websocket"]["host"],
                 port=data["adapter"]["websocket"]["port"],
+                workers=data["adapter"]["websocket"].get("workers", 4),
+                queue_size=data["adapter"]["websocket"].get("queue_size", 256),
+                call_timeout=data["adapter"]["websocket"].get("call_timeout", 30.0),
+                pending_limit=data["adapter"]["websocket"].get("pending_limit", 256),
             ),
         ),
     )
