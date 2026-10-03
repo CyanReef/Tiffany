@@ -129,6 +129,18 @@ class ServiceHandle(Generic[T]):
         )
 
 
+class ServiceOwnershipError(ValueError):
+    """One service instance cannot have independent lifecycle owners."""
+
+    def __init__(self, existing: ServiceEntry, incoming: ServiceEntry) -> None:
+        self.existing = existing
+        self.incoming = incoming
+        super().__init__(
+            f"service instance already belongs to {existing.owner!r}; "
+            f"share ServiceKey {existing.key.name!r} using declared dependencies"
+        )
+
+
 class ServiceRegistry:
     """Explicit services with lock-free reads and copy-on-write mutations."""
 
@@ -180,12 +192,18 @@ class ServiceRegistry:
                 source=source,
             )
             if existing is not None:
+                if existing.service is service and not same_owner(existing.owner, owner):
+                    raise ServiceOwnershipError(existing, candidate)
                 if _same_service_declaration(existing, candidate):
                     registration_id = existing.registration_id
                     if registration_id is None:  # pragma: no cover
                         raise RuntimeError("published service has no registration id")
                     return cast(ServiceHandle[T], self._handles[registration_id])
                 raise ServiceConflictError(existing, candidate)
+
+            for declaration in current.services.values():
+                if declaration.service is service and not same_owner(declaration.owner, owner):
+                    raise ServiceOwnershipError(declaration, candidate)
 
             registration_id = self._next_id
             self._next_id += 1

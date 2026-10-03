@@ -1,3 +1,5 @@
+"""业务组合入口：选择并注册应用启用的派生字段与消息 Hook。"""
+
 from core import Bot
 
 from .command import register_command_provider

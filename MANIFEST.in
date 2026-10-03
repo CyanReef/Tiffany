@@ -1,0 +1,7 @@
+include start.sh start.bat start.ps1 launcher.py requirements-server.in requirements-server.lock
+include LICENSE LICENSE.en README.md
+recursive-include examples *.toml *.py
+recursive-include docs *.md
+prune data
+prune .build-cache
+global-exclude __pycache__ *.py[cod]

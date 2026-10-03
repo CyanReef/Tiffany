@@ -39,6 +39,7 @@ class EventScheduler:
         "_ready_set",
         "_active_sessions",
         "_adapter_active",
+        "_adapter_queued",
         "_adapter_limits",
         "_queued",
         "_active",
@@ -68,6 +69,7 @@ class EventScheduler:
         self._ready_set: set[tuple[str, str]] = set()
         self._active_sessions: set[tuple[str, str]] = set()
         self._adapter_active: dict[str, int] = {}
+        self._adapter_queued: dict[str, int] = {}
         self._adapter_limits: dict[str, int] = {}
         self._queued = 0
         self._active = 0
@@ -104,6 +106,10 @@ class EventScheduler:
     @property
     def idle(self) -> bool:
         return self._queued == 0 and self._active == 0
+
+    @property
+    def accepting(self) -> bool:
+        return self._accepting and self._queued + self._active < self.capacity
 
     async def submit(
         self,
@@ -147,6 +153,7 @@ class EventScheduler:
         self.runtime._retain_event_owners(owners)
         queue.append(work)
         self._queued += 1
+        self._adapter_queued[adapter_id] = self._adapter_queued.get(adapter_id, 0) + 1
         self.runtime.metrics.inc(
             "events_received_total",
             labels={"platform": envelope.platform, "adapter": adapter_id},
@@ -169,6 +176,7 @@ class EventScheduler:
             elif work in queue:
                 queue.remove(work)
                 self._queued -= 1
+                self._adapter_queued[adapter_id] -= 1
                 if not queue:
                     self._lanes.pop(lane, None)
                     self._ready_set.discard(lane)
@@ -214,6 +222,7 @@ class EventScheduler:
                     continue
                 work = queue.popleft()
                 self._queued -= 1
+                self._adapter_queued[adapter_id] -= 1
                 self._active += 1
                 self._adapter_active[adapter_id] = adapter_active + 1
                 self._active_sessions.add(lane)
@@ -312,6 +321,9 @@ class EventScheduler:
         self._ready.clear()
         self._ready_set.clear()
         self._queued = 0
+        for adapter_id in self._adapter_queued:
+            self._adapter_queued[adapter_id] = 0
+            self._record_watermark(adapter_id)
         tasks = tuple(self._event_tasks)
         for task in tasks:
             task.cancel()
@@ -323,12 +335,15 @@ class EventScheduler:
         return tuple(task.get_name() for task in pending)
 
     def _record_watermark(self, adapter_id: str) -> None:
-        current = self._queued + self._active
-        self.runtime.metrics.set_max(
-            "event_queue_watermark",
-            current,
-            labels={"adapter": adapter_id},
-        )
+        metrics = self.runtime.metrics
+        queued = self._adapter_queued.get(adapter_id, 0)
+        active = self._adapter_active.get(adapter_id, 0)
+        for labels, depth, running in ((None, self._queued, self._active),
+                                        ({"adapter": adapter_id}, queued, active)):
+            metrics.set("event_queue_depth", depth, labels=labels)
+            metrics.set("events_active", running, labels=labels)
+            metrics.set_max("event_queue_watermark", depth + running, labels=labels)
+        metrics.set("event_queue_capacity", self.capacity)
 
     async def cancel_owner(
         self,
@@ -343,6 +358,8 @@ class EventScheduler:
                 work = queue.popleft()
                 if any(same_owner(item, owner) for item in work.owners):
                     self._queued -= 1
+                    self._adapter_queued[work.adapter_id] -= 1
+                    self._record_watermark(work.adapter_id)
                     if not work.future.done():
                         work.future.cancel()
                     self.runtime._release_event_owners(work.owners)

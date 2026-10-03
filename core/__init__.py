@@ -1,7 +1,18 @@
-"""Public API for Tiffany's raw-first hook runtime."""
+"""Tiffany 的公共 API，按入口、事件、注册、运行和观测职责组织。
 
+源码分类见 docs/CODE_MAP.md，建议从 Bot、Envelope 和 Context 开始阅读。
+"""
+
+# 1. 开发入口：注册功能、划定资源归属。
 from .Bot import Bot
+from .Scope import OwnerInUseError, Scope
+from .Paths import APP_PATHS, RuntimePaths
+
+# 2. 事件模型与分发：描述消息、读取字段、执行 Hook。
+from .Envelope import Envelope
 from .Context import Context
+from .Field import Field
+from .Hook import Hook, HookErrorPolicy
 from .Dispatcher import (
     Dispatcher,
     HookExecutionError,
@@ -9,9 +20,28 @@ from .Dispatcher import (
     HookSnapshot,
     HookTimeoutError,
 )
-from .Envelope import Envelope
-from .Field import Field
-from .Hook import Hook, HookErrorPolicy
+
+# 3. 注册与依赖：声明数据来源、共享服务和可撤销注册。
+from .Provider import (
+    Provider,
+    ProviderConflictError,
+    ProviderContext,
+    ProviderHandle,
+    ProviderRegistry,
+    ProviderSnapshot,
+)
+from .Service import (
+    ServiceConflictError,
+    ServiceOwnershipError,
+    ServiceHandle,
+    ServiceKey,
+    ServiceRegistry,
+    ServiceSnapshot,
+)
+
+# 4. 运行与生命周期：启动、任务监督、关闭及清理报告。
+from .Runtime import Lifespan, Runtime
+from .TaskRegistry import TaskInfo, TaskRegistry
 from .Lifecycle import (
     CleanupResult,
     ComponentStartupTimeoutError,
@@ -25,74 +55,66 @@ from .Lifecycle import (
     StartupResult,
     StopMode,
 )
+
+# 5. 观测：指标快照、HTTP 导出和事件执行追踪。
 from .Metrics import MetricRegistry, MetricSample, MetricSnapshot
 from .OpenMetrics import MissingOptionalDependencyError, OpenMetricsExporter
-from .Provider import (
-    Provider,
-    ProviderConflictError,
-    ProviderContext,
-    ProviderHandle,
-    ProviderRegistry,
-    ProviderSnapshot,
-)
-from .Runtime import Lifespan, Runtime
-from .Scope import OwnerInUseError, Scope
-from .Service import (
-    ServiceConflictError,
-    ServiceHandle,
-    ServiceKey,
-    ServiceRegistry,
-    ServiceSnapshot,
-)
-from .TaskRegistry import TaskInfo, TaskRegistry
 from .Trace import DispatchRecord, TraceRecorder
 
 
 __all__ = [
+    # 开发入口
     "Bot",
-    "CleanupResult",
-    "ComponentStartupTimeoutError",
-    "Context",
-    "DispatchRecord",
-    "Dispatcher",
-    "DuplicateAdapterIdError",
+    "Scope",
+    "OwnerInUseError",
+    "RuntimePaths",
+    "APP_PATHS",
+    # 事件模型与分发
     "Envelope",
+    "Context",
     "Field",
     "Hook",
     "HookErrorPolicy",
-    "HookExecutionError",
+    "Dispatcher",
     "HookHandle",
     "HookSnapshot",
+    "HookExecutionError",
     "HookTimeoutError",
-    "LifecycleError",
+    # 注册与依赖
+    "Provider",
+    "ProviderContext",
+    "ProviderRegistry",
+    "ProviderHandle",
+    "ProviderSnapshot",
+    "ProviderConflictError",
+    "ServiceKey",
+    "ServiceRegistry",
+    "ServiceHandle",
+    "ServiceSnapshot",
+    "ServiceConflictError",
+    "ServiceOwnershipError",
+    # 运行与生命周期
+    "Runtime",
     "Lifespan",
+    "TaskRegistry",
+    "TaskInfo",
+    "RuntimeState",
+    "StopMode",
+    "LifecycleError",
+    "RuntimeNotRunningError",
+    "RuntimeOverloadedError",
+    "ComponentStartupTimeoutError",
+    "DuplicateAdapterIdError",
+    "ShutdownIncompleteError",
+    "StartupResult",
+    "CleanupResult",
+    "ShutdownReport",
+    # 观测
     "MetricRegistry",
     "MetricSample",
     "MetricSnapshot",
-    "MissingOptionalDependencyError",
     "OpenMetricsExporter",
-    "OwnerInUseError",
-    "Provider",
-    "ProviderConflictError",
-    "ProviderContext",
-    "ProviderHandle",
-    "ProviderRegistry",
-    "ProviderSnapshot",
-    "Runtime",
-    "RuntimeNotRunningError",
-    "RuntimeOverloadedError",
-    "RuntimeState",
-    "Scope",
-    "ServiceConflictError",
-    "ServiceHandle",
-    "ServiceKey",
-    "ServiceRegistry",
-    "ServiceSnapshot",
-    "ShutdownIncompleteError",
-    "ShutdownReport",
-    "StopMode",
-    "StartupResult",
-    "TaskInfo",
-    "TaskRegistry",
+    "MissingOptionalDependencyError",
+    "DispatchRecord",
     "TraceRecorder",
 ]

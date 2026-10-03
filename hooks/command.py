@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from core import Bot, Context, Field
+from core import Bot, Field, ProviderContext
 from fields import TEXT
 
 
@@ -14,7 +14,7 @@ COMMAND = Field[Command | None]("command")
 
 
 def _parser(prefix: str):
-    def parse(ctx: Context) -> Command | None:
+    def parse(ctx: ProviderContext) -> Command | None:
         text = ctx.resolve(TEXT).strip()
         if not text.startswith(prefix):
             return None

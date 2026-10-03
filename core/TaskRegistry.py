@@ -34,6 +34,7 @@ class TaskRegistry:
         "_closing",
         "_failure_handler",
         "_failures",
+        "_expected_cancellations",
     )
 
     def __init__(self) -> None:
@@ -43,6 +44,7 @@ class TaskRegistry:
         self._closing = False
         self._failure_handler: Callable[[TaskInfo, BaseException], Any] | None = None
         self._failures: list[tuple[TaskInfo, BaseException]] = []
+        self._expected_cancellations: set[asyncio.Task[Any]] = set()
 
     def set_failure_handler(
         self,
@@ -80,10 +82,12 @@ class TaskRegistry:
     def _done(self, task: asyncio.Task[Any]) -> None:
         info = self._info.pop(task, None)
         self._tasks.discard(task)
+        expected_cancel = task in self._expected_cancellations
+        self._expected_cancellations.discard(task)
         if info is None:
             return
         if task.cancelled():
-            if not self._closing and (
+            if not self._closing and not expected_cancel and (
                 info.critical or info.failure_policy == "disable_owner"
             ):
                 self._report_failure(
@@ -167,6 +171,7 @@ class TaskRegistry:
     async def cancel_owner(self, owner: object, grace: float = 1.0) -> tuple[str, ...]:
         tasks = self.tasks_for(owner)
         for task in tasks:
+            self._expected_cancellations.add(task)
             task.cancel()
         if tasks:
             done, pending = await asyncio.wait(tasks, timeout=grace)

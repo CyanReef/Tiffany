@@ -4,6 +4,8 @@ import asyncio
 import inspect
 import json
 import logging
+import hmac
+import math
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -11,6 +13,7 @@ from websockets.asyncio.server import serve
 
 from clients import OneBotWebSocketClient, create_client
 from core import Envelope
+from settings import is_loopback
 
 from .onebot_fields import detect_event_kind
 from .onebot_fields import register_onebot_fields
@@ -34,19 +37,25 @@ class OneBotWebSocketAdapter:
         queue_size: int = 256,
         call_timeout: float = 30.0,
         pending_limit: int = 256,
+        token: str | None = None,
     ):
-        if not isinstance(host, str) or not isinstance(port, int) or not isinstance(
+        if not isinstance(host, str) or type(port) is not int or not 0 <= port <= 65535 or not isinstance(
             platform, str
         ):
             raise TypeError("host, port, and platform have invalid types")
-        if workers < 1 or queue_size < 1:
+        if type(workers) is not int or type(queue_size) is not int or workers < 1 or queue_size < 1:
             raise ValueError("workers and queue_size must be at least 1")
         if workers > 4:
             raise ValueError("OneBot adapter workers cannot exceed the P0 limit of 4")
         if queue_size > 256:
             raise ValueError("OneBot adapter queue_size cannot exceed 256")
-        if call_timeout <= 0 or pending_limit < 1:
+        if (type(call_timeout) not in (float, int) or not math.isfinite(call_timeout)
+                or call_timeout <= 0 or type(pending_limit) is not int or pending_limit < 1):
             raise ValueError("call_timeout must be positive and pending_limit at least 1")
+        if token is not None and (not isinstance(token, str) or not token or any(ord(c) < 32 for c in token)):
+            raise ValueError("OneBot Token must be a non-empty string without control characters")
+        if not token and not is_loopback(host):
+            raise ValueError("non-loopback OneBot binding requires a Token")
 
         self.host = host
         self.port = port
@@ -56,6 +65,8 @@ class OneBotWebSocketAdapter:
         self.queue_size = queue_size
         self.call_timeout = call_timeout
         self.pending_limit = pending_limit
+        self._token = token
+        self._providers = ()
 
         self.runtime: object | None = None
         self._server: object | None = None
@@ -75,6 +86,19 @@ class OneBotWebSocketAdapter:
     def connection_generation(self) -> int:
         return self._generation
 
+    @property
+    def ready(self) -> bool:
+        return (self._active_ws is not None and self._active_client is not None
+                and self._active_client.running and self._accepting_events and not self._stopping)
+
+    def _authenticate(self, connection, request):
+        if self._token:
+            values = request.headers.get_all("Authorization")
+            supplied = values[0] if len(values) == 1 else ""
+            if not hmac.compare_digest(supplied.encode(), f"Bearer {self._token}".encode()):
+                return connection.respond(401, "Unauthorized\n")
+        return None
+
     async def setup(self, runtime: object) -> None:
         if self.runtime is runtime:
             return
@@ -83,7 +107,7 @@ class OneBotWebSocketAdapter:
         self.runtime = runtime
         bot = getattr(runtime, "bot", None)
         if bot is not None:
-            register_onebot_fields(bot, self.platform)
+            self._providers = register_onebot_fields(bot, self.platform)
         scheduler = getattr(runtime, "scheduler", None)
         if scheduler is not None and hasattr(scheduler, "configure_adapter"):
             scheduler.configure_adapter(self.adapter_id, self.workers)
@@ -93,7 +117,8 @@ class OneBotWebSocketAdapter:
             return
         if self.runtime is None:
             raise RuntimeError("adapter must be set up before start")
-        self._server = await serve(self.handle, self.host, self.port)
+        self._server = await serve(self.handle, self.host, self.port,
+                                   process_request=self._authenticate)
         self._accepting_events = True
         self._stopping = False
         self._started = True
@@ -151,6 +176,9 @@ class OneBotWebSocketAdapter:
         if server is not None:
             server.close()
             await server.wait_closed()
+        for handle in self._providers:
+            handle.revoke()
+        self._providers = ()
         self.runtime = None
         self._started = False
 
@@ -248,6 +276,7 @@ class OneBotWebSocketAdapter:
             raise RuntimeError("adapter is not set up")
         if len(self._event_tasks) >= self.queue_size:
             self._inc("onebot_events_dropped_total", reason="overload")
+            logger.warning("OneBot event dropped event_id=%s reason=overload", envelope.event_id)
             return
         awaitable = self._emit(envelope)
         try:

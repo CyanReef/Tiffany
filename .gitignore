@@ -4,6 +4,10 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+*.egg-info/
+build/
+dist/
 /FRAMEWORK_PLAN.md
 /target.md
-/tests/
+/data/
+/.build-cache/

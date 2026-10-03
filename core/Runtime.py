@@ -1,18 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import time
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 from .Context import Context
 from .Envelope import Envelope
 from .EventScheduler import EventScheduler
 from .Lifecycle import (
-    CleanupResult,
-    ComponentStartupTimeoutError,
     DuplicateAdapterIdError,
     LifecycleError,
     RuntimeNotRunningError,
@@ -22,8 +19,9 @@ from .Lifecycle import (
     StopMode,
 )
 from .Metrics import MetricRegistry
-from .Ownership import OwnerKey, same_owner, unique_owners
+from .Ownership import OwnerKey, same_owner
 from .TaskRegistry import TaskInfo, TaskRegistry
+from .runtime import components, owners as owner_resources, shutdown, startup
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,14 +93,14 @@ class Runtime:
         "_started_adapters",
         "_started_adapter_ids",
         "_close_task",
-        "_close_waiters",
-        "_caller_task",
         "_start_lock",
         "_stop_requested",
         "_failed_start",
         "_owner_events",
         "_owner_changed",
         "_service_order",
+        "_closed",
+        "failure_cause",
     )
 
     def __init__(self, bot: Any) -> None:
@@ -125,14 +123,24 @@ class Runtime:
         self._started_adapters: list[Any] = []
         self._started_adapter_ids: set[int] = set()
         self._close_task: asyncio.Task[ShutdownReport] | None = None
-        self._close_waiters: set[asyncio.Task[Any]] = set()
-        self._caller_task: asyncio.Task[Any] | None = None
         self._start_lock = asyncio.Lock()
         self._stop_requested: StopMode = "drain"
         self._failed_start = False
         self._owner_events: dict[OwnerKey, int] = {}
         self._owner_changed = asyncio.Event()
         self._service_order: list[Any] = []
+        self._closed = asyncio.Event()
+        self.failure_cause: BaseException | None = None
+
+    async def wait_closed(self) -> ShutdownReport:
+        """Wait for cleanup (including startup rollback) to finish."""
+        await self._closed.wait()
+        return self.shutdown_report or ShutdownReport()
+
+    @property
+    def startup_failed(self) -> bool:
+        """Whether setup or start failed and entered rollback."""
+        return self._failed_start
 
     @property
     def adapters(self) -> tuple[Any, ...]:
@@ -186,91 +194,10 @@ class Runtime:
         )
 
     async def setup(self, runtime: object | None = None) -> None:
-        if self._caller_task is None:
-            self._caller_task = asyncio.current_task()
-        async with self._start_lock:
-            if self.state == RuntimeState.SETUP:
-                return
-            if self.state != RuntimeState.NEW or self._failed_start:
-                raise LifecycleError(f"runtime cannot setup from {self.state.value!r}")
-            self.state = RuntimeState.SETTING_UP
-            try:
-                services = [handle.component for handle in self.bot.services.lifecycle_order()]
-                self._service_order = services
-                components: list[Any] = []
-                component_ids: set[int] = set()
-                for component in (*services, *self._adapters):
-                    if id(component) in component_ids:
-                        continue
-                    component_ids.add(id(component))
-                    components.append(component)
-                async with asyncio.timeout(self.STARTUP_TIMEOUT):
-                    for component in components:
-                        await self._call_startup(
-                            component,
-                            "setup",
-                            self.SETUP_TIMEOUT,
-                            self,
-                        )
-                        self._setup_components.append(component)
-                        self._setup_ids.add(id(component))
-                # Adapter setup may install protocol-owned synchronous
-                # providers. Freeze and validate only after every component
-                # has declared its capabilities, before any I/O starts.
-                self.bot.services.validate()
-                self.bot._validate_registrations()
-                self.state = RuntimeState.SETUP
-            except BaseException:
-                self._failed_start = True
-                await self._rollback_startup()
-                raise
+        return await startup.setup(self)
 
     async def start(self) -> None:
-        if self.state == RuntimeState.NEW:
-            await self.setup()
-        async with self._start_lock:
-            if self.state == RuntimeState.RUNNING:
-                return
-            if self.state != RuntimeState.SETUP or self._failed_start:
-                raise LifecycleError(f"runtime cannot start from {self.state.value!r}")
-            self.state = RuntimeState.STARTING
-            try:
-                self.bot.services.validate()
-                self.bot._validate_registrations()
-                async with asyncio.timeout(self.STARTUP_TIMEOUT):
-                    for component in self._service_order:
-                        if id(component) in self._started_service_ids:
-                            continue
-                        await self._call_startup(
-                            component,
-                            "start",
-                            self.START_TIMEOUT,
-                        )
-                        self._started_services.append(component)
-                        self._started_service_ids.add(id(component))
-                    for registration in self._lifespans:
-                        await self._call_startup(
-                            registration.manager,
-                            "__aenter__",
-                            self.LIFESPAN_TIMEOUT,
-                        )
-                        self._entered_lifespans.append(registration)
-                    for adapter in self._adapters:
-                        if id(adapter) in self._started_adapter_ids:
-                            continue
-                        await self._call_startup(
-                            adapter,
-                            "start",
-                            self.START_TIMEOUT,
-                        )
-                        self._started_adapters.append(adapter)
-                        self._started_adapter_ids.add(id(adapter))
-                self.scheduler.start()
-                self.state = RuntimeState.RUNNING
-            except BaseException:
-                self._failed_start = True
-                await self._rollback_startup()
-                raise
+        return await startup.start(self)
 
     async def emit(
         self,
@@ -288,10 +215,8 @@ class Runtime:
             providers=self.bot.providers.snapshot(),
             services=self.bot.services.snapshot(),
         )
-        owners = unique_owners(
-            registration.owner
-            for registration in snapshot.hooks.registrations
-            if registration.enabled
+        owners = self.bot.dispatcher._owners_for(
+            envelope.platform, envelope.kind, snapshot.hooks
         )
         return await self.scheduler.submit(
             envelope,
@@ -303,35 +228,23 @@ class Runtime:
         )
 
     def _retain_event_owners(self, owners: tuple[object, ...]) -> None:
-        for owner in owners:
-            key = OwnerKey(owner)
-            self._owner_events[key] = self._owner_events.get(key, 0) + 1
+        return owner_resources._retain_event_owners(self, owners)
 
     def _release_event_owners(self, owners: tuple[object, ...]) -> None:
-        changed = False
-        for owner in owners:
-            key = OwnerKey(owner)
-            count = self._owner_events.get(key, 0) - 1
-            if count > 0:
-                self._owner_events[key] = count
-            else:
-                self._owner_events.pop(key, None)
-            changed = True
-        if changed:
-            self._owner_changed.set()
+        return owner_resources._release_event_owners(self, owners)
 
     async def wait_owner_events(self, owner: object, timeout: float) -> bool:
-        key = OwnerKey(owner)
-        try:
-            async with asyncio.timeout(timeout):
-                while self._owner_events.get(key, 0):
-                    self._owner_changed.clear()
-                    if not self._owner_events.get(key, 0):
-                        return True
-                    await self._owner_changed.wait()
-            return True
-        except TimeoutError:
-            return False
+        return await owner_resources.wait_owner_events(self, owner, timeout)
+
+    async def _unload_owner_resources(
+        self, owner: object, mode: StopMode
+    ) -> ShutdownReport:
+        """Settle in-flight work and release resources owned by one scope."""
+
+        return await owner_resources._unload_owner_resources(self, owner, mode)
+
+    def _has_owner_resources(self, owner: object) -> bool:
+        return owner_resources._has_owner_resources(self, owner)
 
     async def _dispatch(
         self,
@@ -371,33 +284,7 @@ class Runtime:
             )
 
     async def stop(self, mode: StopMode = "drain") -> ShutdownReport:
-        if mode not in ("drain", "abort"):
-            raise ValueError(f"unknown stop mode: {mode!r}")
-        if self._caller_task is None:
-            self._caller_task = asyncio.current_task()
-        if mode == "abort":
-            self._stop_requested = "abort"
-            if self.state == RuntimeState.STOPPING_DRAIN:
-                self.scheduler.request_abort()
-        if self.state in (RuntimeState.TERMINATED, RuntimeState.STOP_FAILED):
-            return self.shutdown_report or ShutdownReport()
-        task = self._close_task
-        if task is None:
-            task = self.tasks.spawn(
-                self._close(),
-                name="runtime:close",
-                owner="runtime-close",
-                critical=False,
-            )
-            self._close_task = task
-        waiter = asyncio.current_task()
-        if waiter is not None:
-            self._close_waiters.add(waiter)
-        try:
-            return await asyncio.shield(task)
-        finally:
-            if waiter is not None:
-                self._close_waiters.discard(waiter)
+        return await shutdown.stop(self, mode)
 
     close = stop
 
@@ -405,139 +292,13 @@ class Runtime:
         return await self.stop(self._stop_requested)
 
     async def _close(self) -> ShutdownReport:
-        if self.state in (RuntimeState.TERMINATED, RuntimeState.STOP_FAILED):
-            return self.shutdown_report or ShutdownReport()
-        report = ShutdownReport(startup_results=tuple(self.startup_results))
-        shutdown_started = time.perf_counter()
-        self.shutdown_report = report
-        self.scheduler.stop_admission()
-        drain_started = time.perf_counter()
-        running = self.state == RuntimeState.RUNNING
-        if self._stop_requested == "drain" and running:
-            self.state = RuntimeState.STOPPING_DRAIN
-            try:
-                async with asyncio.timeout(self.DRAIN_TIMEOUT):
-                    events_drained = await self.scheduler.drain(self.DRAIN_TIMEOUT)
-                    adapters_drained = True
-                    if events_drained:
-                        for component in reversed(self._started_adapters):
-                            if self._stop_requested == "abort":
-                                adapters_drained = False
-                                break
-                            component_deadline = (
-                                asyncio.get_running_loop().time()
-                                + self.COMPONENT_TIMEOUT
-                            )
-                            adapters_drained = (
-                                await self._cleanup(
-                                    component,
-                                    "stop",
-                                    "drain",
-                                    report,
-                                    component_deadline,
-                                )
-                                and adapters_drained
-                            )
-                    drained = events_drained and adapters_drained
-            except TimeoutError:
-                drained = False
-            report.drain_duration = time.perf_counter() - drain_started
-            self.metrics.observe("runtime_drain_seconds", report.drain_duration)
-            if not drained:
-                self._stop_requested = "abort"
-        elif not running:
-            self._stop_requested = "abort"
-        if self._stop_requested == "abort":
-            report.forced = True
-            self.metrics.inc("runtime_forced_shutdown_total")
-            self.state = RuntimeState.STOPPING_ABORT
+        return await shutdown._close(self)
 
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + self.ABORT_TIMEOUT
-        if report.forced:
-            abandoned = await self.scheduler.abort(self.CANCEL_GRACE)
-            report.abandoned_tasks = abandoned
-
-        for component in reversed(self._started_adapters):
-            if report.forced:
-                await self._cleanup(component, "stop", "abort", report, deadline)
-        self._started_adapters.clear()
-        self._started_adapter_ids.clear()
-
-        self.state = RuntimeState.STOPPED
-        self.state = RuntimeState.TEARING_DOWN
-        for registration in reversed(self._entered_lifespans):
-            await self._cleanup(
-                registration.manager,
-                "__aexit__",
-                None,
-                report,
-                deadline,
-            )
-        self._entered_lifespans.clear()
-        for component in reversed(self._started_services):
-            await self._cleanup(component, "stop", self._stop_requested, report, deadline)
-        self._started_services.clear()
-        self._started_service_ids.clear()
-        for component in reversed(self._setup_components):
-            await self._cleanup(component, "teardown", None, report, deadline)
-        self._setup_components.clear()
-        self._setup_ids.clear()
-
-        abandoned = await self.tasks.close(self.CANCEL_GRACE)
-        if abandoned:
-            report.abandoned_tasks = tuple(dict.fromkeys(
-                (*report.abandoned_tasks, *abandoned)
-            ))
-        if self.scheduler.queued or self.scheduler.active or self._owner_events:
-            residue = RuntimeError(
-                "runtime shutdown left event queues or owner references"
-            )
-            report.failures.append(residue)
-        self._record_residual_tasks(report)
-        self.state = (
-            RuntimeState.TERMINATED if report.successful else RuntimeState.STOP_FAILED
-        )
-        self.metrics.observe(
-            "runtime_shutdown_seconds",
-            time.perf_counter() - shutdown_started,
-            labels={"reason": "forced" if report.forced else "drained"},
-        )
-        return report
+    async def _close_impl(self) -> ShutdownReport:
+        return await shutdown._close_impl(self)
 
     async def _rollback_startup(self) -> None:
-        report = ShutdownReport(forced=True)
-        report.startup_results = tuple(self.startup_results)
-        self.shutdown_report = report
-        deadline = asyncio.get_running_loop().time() + self.ABORT_TIMEOUT
-        self.scheduler.stop_admission()
-        report.abandoned_tasks = await self.scheduler.abort(self.CANCEL_GRACE)
-        for component in reversed(self._started_adapters):
-            await self._cleanup(component, "stop", "abort", report, deadline)
-        for registration in reversed(self._entered_lifespans):
-            await self._cleanup(
-                registration.manager,
-                "__aexit__",
-                None,
-                report,
-                deadline,
-            )
-        for component in reversed(self._started_services):
-            await self._cleanup(component, "stop", "abort", report, deadline)
-        for component in reversed(self._setup_components):
-            await self._cleanup(component, "teardown", None, report, deadline)
-        self._started_adapters.clear()
-        self._started_adapter_ids.clear()
-        self._entered_lifespans.clear()
-        self._started_services.clear()
-        self._started_service_ids.clear()
-        self._setup_components.clear()
-        self._setup_ids.clear()
-        abandoned = await self.tasks.close(self.CANCEL_GRACE)
-        if abandoned:
-            report.abandoned_tasks = abandoned
-        self._record_residual_tasks(report)
-        self.state = RuntimeState.STOP_FAILED
+        return await startup._rollback_startup(self)
 
     async def _call_startup(
         self,
@@ -546,44 +307,7 @@ class Runtime:
         timeout: float,
         *args: Any,
     ) -> None:
-        method = getattr(component, method_name, None)
-        if method is None:
-            return
-        started = time.perf_counter()
-        try:
-            async with asyncio.timeout(timeout):
-                result = method(*args)
-                if inspect.isawaitable(result):
-                    await result
-        except TimeoutError as error:
-            self.startup_results.append(StartupResult(
-                component=_component_name(component),
-                phase=method_name,
-                outcome="timeout",
-                duration=time.perf_counter() - started,
-                error_type=type(error).__name__,
-                error_message=f"{method_name} exceeded {timeout:g} seconds",
-            ))
-            raise ComponentStartupTimeoutError(
-                _component_name(component), method_name, timeout
-            ) from error
-        except BaseException as error:
-            self.startup_results.append(StartupResult(
-                component=_component_name(component),
-                phase=method_name,
-                outcome="error",
-                duration=time.perf_counter() - started,
-                error_type=type(error).__name__,
-                error_message=_redact_error(error),
-            ))
-            raise
-        else:
-            self.startup_results.append(StartupResult(
-                component=_component_name(component),
-                phase=method_name,
-                outcome="completed",
-                duration=time.perf_counter() - started,
-            ))
+        return await components._call_startup(self, component, method_name, timeout, *args)
 
     async def _cleanup(
         self,
@@ -593,95 +317,7 @@ class Runtime:
         report: ShutdownReport,
         deadline: float,
     ) -> bool:
-        method = getattr(component, phase, None)
-        if method is None:
-            return True
-        started = time.perf_counter()
-        remaining = max(0.0, deadline - asyncio.get_running_loop().time())
-        timeout = min(self.COMPONENT_TIMEOUT, remaining)
-        outcome: Literal["completed", "error", "timeout", "abandoned"] = "completed"
-        error_type = error_message = None
-        try:
-            if timeout <= 0:
-                raise TimeoutError
-            async def invoke_cleanup() -> None:
-                if phase == "__aexit__":
-                    result = method(None, None, None)
-                elif argument is None:
-                    result = method()
-                else:
-                    result = method(argument)
-                if inspect.isawaitable(result):
-                    await result
-
-            task = self.tasks.spawn(
-                invoke_cleanup(),
-                name=f"cleanup:{_component_name(component)}:{phase}",
-                owner="runtime-cleanup",
-                critical=False,
-            )
-            done, _ = await asyncio.wait((task,), timeout=timeout)
-            if task not in done:
-                task.cancel()
-                _, pending = await asyncio.wait(
-                    (task,),
-                    timeout=min(self.CANCEL_GRACE, max(
-                        0.0,
-                        deadline - asyncio.get_running_loop().time(),
-                    )),
-                )
-                if pending:
-                    outcome = "abandoned"
-                    report.abandoned_tasks = tuple(dict.fromkeys((
-                        *report.abandoned_tasks,
-                        task.get_name(),
-                    )))
-                    report.abandoned_components = tuple(dict.fromkeys((
-                        *report.abandoned_components,
-                        _component_name(component),
-                    )))
-                raise TimeoutError
-            await task
-        except TimeoutError as error:
-            if outcome != "abandoned":
-                outcome = "timeout"
-            error_type = type(error).__name__
-            error_message = f"{phase} exceeded cleanup deadline"
-            report.failures.append(error)
-        except BaseException as error:
-            outcome = "error"
-            error_type = type(error).__name__
-            error_message = _redact_error(error)
-            report.failures.append(error)
-        report.results.append(CleanupResult(
-            component=_component_name(component),
-            phase=phase,
-            outcome=outcome,
-            duration=time.perf_counter() - started,
-            error_type=error_type,
-            error_message=error_message,
-        ))
-        return outcome == "completed"
-
-    def _record_residual_tasks(self, report: ShutdownReport) -> None:
-        current = asyncio.current_task()
-        managed = set(self.tasks._tasks)
-        close_waiters = set(self._close_waiters)
-        if self._caller_task is not None:
-            close_waiters.add(self._caller_task)
-        unmanaged = tuple(
-            task.get_name()
-            for task in asyncio.all_tasks()
-            if task is not current
-            and not task.done()
-            and task not in managed
-            and task not in close_waiters
-        )
-        if unmanaged:
-            report.abandoned_tasks = tuple(dict.fromkeys((
-                *report.abandoned_tasks,
-                *unmanaged,
-            )))
+        return await components._cleanup(self, component, phase, argument, report, deadline)
 
     def _task_failed(self, info: TaskInfo, error: BaseException) -> None:
         if info.failure_policy == "disable_owner":
@@ -699,6 +335,8 @@ class Runtime:
             RuntimeState.STARTING,
             RuntimeState.SETUP,
         ):
+            if self.failure_cause is None:
+                self.failure_cause = error
             self._stop_requested = "abort"
             if self._close_task is None:
                 self._close_task = self.tasks.spawn(
@@ -709,20 +347,7 @@ class Runtime:
                 )
 
     async def __aenter__(self) -> "Runtime":
-        self._caller_task = asyncio.current_task()
         return await self.lifespan().__aenter__()
 
     async def __aexit__(self, exc_type, exc, tb) -> bool:
-        try:
-            return await self.lifespan().__aexit__(exc_type, exc, tb)
-        finally:
-            self._caller_task = None
-
-
-def _component_name(component: Any) -> str:
-    return getattr(component, "name", None) or type(component).__name__
-
-
-def _redact_error(error: BaseException) -> str:
-    text = str(error).replace("\n", " ")
-    return text[:256]
+        return await self.lifespan().__aexit__(exc_type, exc, tb)

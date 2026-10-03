@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import importlib
 import ipaddress
+import inspect
+from collections.abc import Callable
 from dataclasses import dataclass
 from types import ModuleType
 from typing import Any
@@ -78,6 +80,8 @@ class OpenMetricsExporter:
         "_site",
         "_dependencies",
         "_collector_registry",
+        "_live",
+        "_ready",
     )
 
     def __init__(
@@ -88,6 +92,8 @@ class OpenMetricsExporter:
         port: int = 9464,
         path: str = "/metrics",
         allow_remote: bool = False,
+        live: Callable[[], Any] | None = None,
+        ready: Callable[[], Any] | None = None,
     ) -> None:
         if not isinstance(port, int) or isinstance(port, bool) or not 0 <= port <= 65535:
             raise ValueError("OpenMetrics port must be an integer from 0 to 65535")
@@ -97,12 +103,16 @@ class OpenMetricsExporter:
             raise ValueError(
                 "non-loopback OpenMetrics binding requires allow_remote=True"
             )
+        if path in ("/livez", "/readyz"):
+            raise ValueError("OpenMetrics path conflicts with a health endpoint")
 
         self.enabled = enabled
         self.host = host
         self.port = port
         self.path = path
         self.allow_remote = allow_remote
+        self._live = live
+        self._ready = ready
         self._runtime: object | None = None
         self._lock = asyncio.Lock()
         self._started = False
@@ -154,6 +164,25 @@ class OpenMetricsExporter:
 
             app = dependencies.web.Application()
             app.router.add_get(self.path, handle_metrics)
+            def health_handler(callback):
+                async def handle(request):
+                    del request
+                    try:
+                        healthy = callback()
+                        if inspect.isawaitable(healthy):
+                            healthy = await healthy
+                    except Exception:
+                        healthy = False
+                    return dependencies.web.Response(
+                        body=b"ok\n" if healthy else b"unavailable\n",
+                        status=200 if healthy else 503,
+                        headers={"Content-Type": "text/plain; charset=utf-8"},
+                    )
+                return handle
+            if self._live is not None:
+                app.router.add_get("/livez", health_handler(self._live))
+            if self._ready is not None:
+                app.router.add_get("/readyz", health_handler(self._ready))
             runner = dependencies.web.AppRunner(app, access_log=None)
             await runner.setup()
             site = dependencies.web.TCPSite(

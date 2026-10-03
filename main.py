@@ -4,4 +4,4 @@ from application import TiffanyApplication
 
 
 if __name__ == "__main__":
-    TiffanyApplication.run()
+    raise SystemExit(TiffanyApplication.run())

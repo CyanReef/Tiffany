@@ -1,0 +1,33 @@
+# Install: python -m pip install -e ".[qqofficial]"
+# Use start.sh configure/login or set TIFFANY_QQBOT_SECRET.
+[bot]
+name = "Tiffany"
+
+[adapter]
+type = "qqofficial_websocket"
+platform = "qq_official"
+
+[adapter.qqofficial]
+app_id = "YOUR_APP_ID"
+app_secret_env = "TIFFANY_QQBOT_SECRET"
+sandbox = false
+workers = 4
+call_timeout = 30.0
+
+[logging]
+level = "INFO"
+max_bytes = 10485760
+backups = 10
+
+[monitoring]
+enabled = true
+host = "127.0.0.1"
+port = 9464
+allow_remote = false
+
+[restart]
+enabled = true
+window = 600.0
+max_restarts = 5
+delays = [2, 5, 15, 30, 60]
+stop_timeout = 45.0

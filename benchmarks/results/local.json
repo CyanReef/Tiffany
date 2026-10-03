@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "started_at_utc": "2026-09-29T22:20:57.586505+00:00",
+  "environment": {
+    "python": "3.14.4",
+    "implementation": "CPython",
+    "python_build": [
+      "main",
+      "Apr 14 2026 17:00:17"
+    ],
+    "os": "Windows-11-10.0.26100-SP0",
+    "cpu": "AMD Ryzen 9 7940H w/ Radeon 780M Graphics",
+    "logical_cpus": 16,
+    "websockets": "16.0",
+    "event_loop": "ProactorEventLoop",
+    "asyncio_debug": false,
+    "gc_enabled": true,
+    "git_head": "307bef31090e4d808487daac7f3bf02c6135f5b0",
+    "working_tree_dirty": true,
+    "source_sha256": "55fe18eebfc141654d2ae63bd0cdb8660dcaaacdc36c25e06aeea8c96e41da9d"
+  },
+  "method": {
+    "repeats": 7,
+    "events_per_sample": 3000,
+    "warmup_per_case": 200,
+    "field_contexts_per_sample": 50000,
+    "trace_enabled": false,
+    "metrics_enabled": true,
+    "dispatch": "sequential Bot.emit; Envelope allocation through hook completion",
+    "fields": "one resolve per preallocated Context; text strip provider",
+    "case_order": "rotate dispatch cases; alternate first/cached field order",
+    "timing": "perf_counter; setup, warmup and shutdown excluded; GC enabled"
+  },
+  "dispatch": [
+    {
+      "name": "matching_1",
+      "matching_hooks": 1,
+      "unmatched_hooks": 0,
+      "operations_per_sample": 3000,
+      "elapsed_seconds": [
+        0.23178250000000844,
+        0.23745570000028238,
+        0.22832780000044295,
+        0.22564599999986967,
+        0.22591430000011314,
+        0.22775849999925413,
+        0.2259630999997171
+      ],
+      "median_ops_per_second": 13171.84649534408,
+      "min_ops_per_second": 12633.935508797778,
+      "max_ops_per_second": 13295.161447584856,
+      "median_ns_per_op": 75919.49999975138
+    },
+    {
+      "name": "matching_10",
+      "matching_hooks": 10,
+      "unmatched_hooks": 0,
+      "operations_per_sample": 3000,
+      "elapsed_seconds": [
+        0.4594991999992999,
+        0.4642943999997442,
+        0.44472310000037396,
+        0.4499369999994087,
+        0.45722010000008595,
+        0.45213869999952294,
+        0.46823849999964295
+      ],
+      "median_ops_per_second": 6561.391329907491,
+      "min_ops_per_second": 6406.991308921175,
+      "max_ops_per_second": 6745.77057049089,
+      "median_ns_per_op": 152406.70000002865
+    },
+    {
+      "name": "matching_100",
+      "matching_hooks": 100,
+      "unmatched_hooks": 0,
+      "operations_per_sample": 3000,
+      "elapsed_seconds": [
+        2.6468137999991086,
+        2.6341849999998885,
+        2.6308630000003177,
+        2.6255998000006002,
+        2.6651425999998537,
+        2.6704083000004175,
+        2.6845204999999623
+      ],
+      "median_ops_per_second": 1133.4382494155843,
+      "min_ops_per_second": 1117.5180074058076,
+      "max_ops_per_second": 1142.5960650969405,
+      "median_ns_per_op": 882271.2666663695
+    },
+    {
+      "name": "unmatched_0",
+      "matching_hooks": 1,
+      "unmatched_hooks": 0,
+      "operations_per_sample": 3000,
+      "elapsed_seconds": [
+        0.22736299999996845,
+        0.2286765999997442,
+        0.2293958999998722,
+        0.22323270000015327,
+        0.24648710000019491,
+        0.22634649999963585,
+        0.22514389999923878
+      ],
+      "median_ops_per_second": 13194.759041710464,
+      "min_ops_per_second": 12171.022337467672,
+      "max_ops_per_second": 13438.891345210357,
+      "median_ns_per_op": 75787.66666665615
+    },
+    {
+      "name": "unmatched_100",
+      "matching_hooks": 1,
+      "unmatched_hooks": 100,
+      "operations_per_sample": 3000,
+      "elapsed_seconds": [
+        0.22780849999981,
+        0.22569509999993898,
+        0.22499429999970744,
+        0.2262761000001774,
+        0.22890740000002552,
+        0.23292450000008103,
+        0.22680749999926775
+      ],
+      "median_ops_per_second": 13227.075824254865,
+      "min_ops_per_second": 12879.70994892747,
+      "max_ops_per_second": 13333.671119685703,
+      "median_ns_per_op": 75602.4999997559
+    },
+    {
+      "name": "unmatched_1000",
+      "matching_hooks": 1,
+      "unmatched_hooks": 1000,
+      "operations_per_sample": 3000,
+      "elapsed_seconds": [
+        0.22848870000052557,
+        0.22620699999970384,
+        0.22862330000043585,
+        0.23129429999971762,
+        0.22548529999949096,
+        0.23063330000059068,
+        0.22552120000000286
+      ],
+      "median_ops_per_second": 13129.752149638469,
+      "min_ops_per_second": 12970.488248104957,
+      "max_ops_per_second": 13304.636710272343,
+      "median_ns_per_op": 76162.9000001752
+    }
+  ],
+  "fields": [
+    {
+      "name": "first",
+      "provider_calls_per_sample": [
+        50000,
+        50000,
+        50000,
+        50000,
+        50000,
+        50000,
+        50000
+      ],
+      "operations_per_sample": 50000,
+      "elapsed_seconds": [
+        0.07378679999965243,
+        0.073241500000222,
+        0.07471189999978378,
+        0.07245050000074116,
+        0.07407200000034209,
+        0.07259720000001835,
+        0.0739464999996926
+      ],
+      "median_ops_per_second": 677627.9768228941,
+      "min_ops_per_second": 669237.4307191317,
+      "max_ops_per_second": 690126.3621298474,
+      "median_ns_per_op": 1475.7359999930486
+    },
+    {
+      "name": "cached",
+      "provider_calls_per_sample": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "operations_per_sample": 50000,
+      "elapsed_seconds": [
+        0.008801199999652454,
+        0.009083100000680133,
+        0.008920199999920442,
+        0.00901990000056685,
+        0.009148600000116858,
+        0.00884200000018609,
+        0.009209300000293297
+      ],
+      "median_ops_per_second": 5543298.705845717,
+      "min_ops_per_second": 5429294.300153932,
+      "max_ops_per_second": 5681043.4942933265,
+      "median_ns_per_op": 180.398000011337
+    }
+  ],
+  "finished_at_utc": "2026-09-29T22:21:31.576008+00:00"
+}

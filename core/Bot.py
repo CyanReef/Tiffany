@@ -9,7 +9,7 @@ from .Dispatcher import Dispatcher
 from .Envelope import Envelope
 from .Field import Field
 from .Hook import Handler, HookErrorPolicy, Predicate
-from .Lifecycle import RuntimeState, StopMode
+from .Lifecycle import RuntimeState, ShutdownIncompleteError, StopMode
 from .Ownership import OwnerKey, same_owner
 from .Provider import ProviderContext, ProviderHandle, ProviderRegistry
 from .Runtime import Runtime
@@ -31,6 +31,7 @@ class Bot:
         "application",
         "_scopes",
         "_validated_platforms",
+        "_unloading_owners",
     )
 
     def __init__(self) -> None:
@@ -42,6 +43,7 @@ class Bot:
         self.application = Scope(self, "application", "application")
         self._scopes: dict[str, Scope] = {"application": self.application}
         self._validated_platforms: dict[str, tuple[int, int, int]] = {}
+        self._unloading_owners: set[OwnerKey] = set()
         self.dispatcher._on_change = self._validated_platforms.clear
         self.providers._on_change = self._validated_platforms.clear
         self.services._on_change = self._validated_platforms.clear
@@ -177,29 +179,36 @@ class Bot:
         return await self.runtime.emit(envelope, reject=False, wait=False) is not None
 
     async def setup(self, runtime: object | None = None) -> None:
-        self.runtime._caller_task = asyncio.current_task()
         await self.runtime.setup(runtime)
 
     async def start(self) -> None:
         await self.runtime.start()
 
     async def stop(self, mode: StopMode = "drain"):
-        try:
-            return await self.runtime.stop(mode)
-        finally:
-            self.runtime._caller_task = None
+        return await self.runtime.stop(mode)
 
     async def teardown(self):
-        try:
-            return await self.runtime.teardown()
-        finally:
-            self.runtime._caller_task = None
+        return await self.runtime.teardown()
 
     async def run_async(self) -> None:
         async with self.runtime:
-            await asyncio.Event().wait()
+            report = await self.runtime.wait_closed()
+        if self.runtime.failure_cause is not None:
+            raise self.runtime.failure_cause
+        if not report.successful:
+            raise ShutdownIncompleteError(report)
 
     async def unload(self, owner: object, *, mode: str = "drain") -> None:
+        key = OwnerKey(owner)
+        if key in self._unloading_owners:
+            raise RuntimeError(f"owner {owner!r} is already unloading")
+        self._unloading_owners.add(key)
+        try:
+            await self._unload(owner, mode=mode)
+        finally:
+            self._unloading_owners.discard(key)
+
+    async def _unload(self, owner: object, *, mode: str) -> None:
         if mode not in ("drain", "abort"):
             raise ValueError("unload mode must be 'drain' or 'abort'")
         dependents = self._owner_dependents(owner)
@@ -211,120 +220,26 @@ class Bot:
         for handle in hook_handles:
             handle.disable()
 
-        if self.runtime.state == RuntimeState.RUNNING:
-            try:
-                drained = await self.runtime.wait_owner_events(
-                    owner,
-                    timeout=30.0,
-                )
-                if drained:
-                    drained = await self.runtime.tasks.wait_owner(
-                        owner,
-                        timeout=30.0,
-                    )
-                if not drained:
-                    await self.runtime.scheduler.cancel_owner(owner, grace=1.0)
-                    await self.runtime.tasks.cancel_owner(owner, grace=1.0)
-            except BaseException:
-                for handle, was_enabled in hook_states:
-                    if was_enabled:
-                        handle.enable()
-                raise
+        try:
+            report = await self.runtime._unload_owner_resources(owner, mode)
+        except BaseException:
+            for handle, was_enabled in hook_states:
+                if was_enabled:
+                    handle.enable()
+            raise
 
-        from .Lifecycle import ShutdownIncompleteError, ShutdownReport
-
-        report = ShutdownReport(forced=mode == "abort")
-        deadline = asyncio.get_running_loop().time() + 30.0
-
-        adapters = self.runtime.adapters_for_owner(owner)
-        for adapter in reversed(adapters):
-            if any(item is adapter for item in self.runtime._started_adapters):
-                stopped = await self.runtime._cleanup(
-                    adapter, "stop", mode, report, deadline
-                )
-                if stopped:
-                    _remove_identity(self.runtime._started_adapters, adapter)
-                    self.runtime._started_adapter_ids.discard(id(adapter))
-            if any(item is adapter for item in self.runtime._setup_components):
-                torn_down = await self.runtime._cleanup(
-                    adapter, "teardown", None, report, deadline
-                )
-                if torn_down:
-                    _remove_identity(self.runtime._setup_components, adapter)
-                    self.runtime._setup_ids.discard(id(adapter))
-
-        lifespans = self.runtime.lifespans_for_owner(owner)
-        for registration in reversed(lifespans):
-            if any(
-                item is registration
-                for item in self.runtime._entered_lifespans
-            ):
-                exited = await self.runtime._cleanup(
-                    registration.manager,
-                    "__aexit__",
-                    None,
-                    report,
-                    deadline,
-                )
-                if exited:
-                    _remove_identity(
-                        self.runtime._entered_lifespans,
-                        registration,
-                    )
-
-        services = self.services.handles_for_owner(owner)
-        ordered = tuple(
-            handle
-            for handle in self.services.lifecycle_order()
-            if any(handle is owned for owned in services)
-        )
-        for handle in reversed(ordered):
-            component = handle.component
-            stopped = not any(
-                item is component for item in self.runtime._started_services
-            )
-            if any(item is component for item in self.runtime._started_services):
-                stopped = await self.runtime._cleanup(
-                    component, "stop", mode, report, deadline
-                )
-                if stopped:
-                    _remove_identity(self.runtime._started_services, component)
-                    self.runtime._started_service_ids.discard(id(component))
-            torn_down = not any(
-                item is component for item in self.runtime._setup_components
-            )
-            if any(item is component for item in self.runtime._setup_components):
-                torn_down = await self.runtime._cleanup(
-                    component, "teardown", None, report, deadline
-                )
-                if torn_down:
-                    _remove_identity(self.runtime._setup_components, component)
-                    self.runtime._setup_ids.discard(id(component))
-            if stopped and torn_down:
-                _remove_identity(self.runtime._service_order, component)
+        if not report.successful:
+            raise ShutdownIncompleteError(report)
 
         for handle in hook_handles:
             handle.remove()
         self.providers.revoke_owner(owner)
         self.services.revoke_owner(owner)
-        if not report.failures and not report.abandoned_tasks:
-            self.runtime._adapters[:] = [
-                adapter
-                for adapter in self.runtime._adapters
-                if not any(adapter is owned for owned in adapters)
-            ]
-            self.runtime._adapter_owners[:] = [
-                item
-                for item in self.runtime._adapter_owners
-                if not same_owner(item[1], owner)
-            ]
-            self.runtime._lifespans[:] = [
-                registration
-                for registration in self.runtime._lifespans
-                if not same_owner(registration.owner, owner)
-            ]
-        scope = next((scope for scope in self._scopes.values()
-                      if same_owner(scope.owner, owner)), None)
+        scope = next(
+            (scope for scope in self._scopes.values()
+             if same_owner(scope.owner, owner)),
+            None,
+        )
         if scope is not None:
             scope._active = False
 
@@ -332,10 +247,7 @@ class Bot:
             self.dispatcher.handles_for_owner(owner)
             or self.providers.handles_for_owner(owner)
             or self.services.handles_for_owner(owner)
-            or self.runtime.tasks.tasks_for(owner)
-            or self.runtime.adapters_for_owner(owner)
-            or self.runtime.lifespans_for_owner(owner)
-            or self.runtime._owner_events.get(OwnerKey(owner), 0)
+            or self.runtime._has_owner_resources(owner)
         )
         if residue:
             report.failures.append(
@@ -373,11 +285,3 @@ class Bot:
 
     async def __aexit__(self, exc_type, exc, tb) -> bool:
         return await self.runtime.__aexit__(exc_type, exc, tb)
-
-
-def _remove_identity(items: list[Any], value: object) -> bool:
-    for index, item in enumerate(items):
-        if item is value:
-            del items[index]
-            return True
-    return False

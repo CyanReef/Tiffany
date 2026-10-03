@@ -1,0 +1,66 @@
+name: Server
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install --require-hashes --only-binary=:all: -r requirements-server.lock
+      - run: python -B -m unittest discover -s tests -t . -q
+      - run: bash -n start.sh
+      - run: python -B tools/build_release.py
+      - run: python -m pip install build && python -m build
+      - name: Check data exclusion and run the built wheel
+        run: |
+          python - <<'PY'
+          import pathlib, subprocess, sys, tarfile, tempfile, zipfile
+          for path in pathlib.Path('dist').iterdir():
+              if path.suffix == '.whl' or path.suffix == '.zip':
+                  with zipfile.ZipFile(path) as archive:
+                      names = archive.namelist()
+              elif path.name.endswith('.tar.gz'):
+                  with tarfile.open(path) as archive:
+                      names = archive.getnames()
+              else:
+                  continue
+              assert not any('data' in pathlib.PurePosixPath(name).parts[:2] for name in names), path
+          probe = (
+              "import sys, asyncio\n"
+              "sys.path.insert(0, sys.argv[1])\n"
+              "from core import Bot, Envelope\n"
+              "from deployment.launcher import arguments\n"
+              "async def main():\n"
+              "    async with Bot() as bot:\n"
+              "        await bot.emit(Envelope('package', {}))\n"
+              "asyncio.run(main())\n"
+          )
+          for wheel in pathlib.Path('dist').glob('*.whl'):
+              with tempfile.TemporaryDirectory() as cwd:
+                  subprocess.run([sys.executable, '-B', '-c', probe, str(wheel.resolve())],
+                                 cwd=cwd, check=True, timeout=15)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-python-${{ matrix.python }}
+          path: dist/
+  windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install --require-hashes --only-binary=:all: -r requirements-server.lock
+      - run: python -B -m unittest discover -s tests -t . -q
+      - run: python -B tools/build_release.py

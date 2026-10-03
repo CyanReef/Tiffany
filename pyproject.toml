@@ -1,22 +1,36 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "tiffany-hook-runtime"
 version = "0.1.0"
 description = "A raw-first, synchronous-lazy hook runtime"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE", "LICENSE.en"]
 requires-python = ">=3.11"
 dependencies = [
     "websockets>=16,<17",
 ]
 
 [project.optional-dependencies]
+benchmark = ["matplotlib>=3.9,<4"]
+qqofficial = ["aiohttp>=3.11,<4"]
 openmetrics = [
     "aiohttp>=3.11,<4",
     "prometheus-client>=0.22,<1",
 ]
+server = [
+    "aiohttp>=3.11,<4",
+    "prometheus-client>=0.22,<1",
+    "qqbot-agent-sdk[qrcode]==1.2.2",
+]
+
+[project.urls]
+Repository = "https://github.com/CyanReef/Tiffany"
+Issues = "https://github.com/CyanReef/Tiffany/issues"
 
 [tool.setuptools]
-packages = ["adapters", "clients", "core", "hooks"]
-py-modules = ["application", "fields", "main", "settings"]
+packages = ["adapters", "clients", "core", "core.dispatch", "core.runtime", "hooks", "deployment", "shared"]
+py-modules = ["application", "fields", "main", "settings", "launcher"]

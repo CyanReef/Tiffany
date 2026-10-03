@@ -1,6 +1,6 @@
 from typing import Any
 
-from core import Bot, Context
+from core import Bot, ProviderContext
 from fields import GROUP_ID, MESSAGE_ID, MESSAGE_TYPE, SELF_ID, TEXT, USER_ID
 
 
@@ -15,7 +15,7 @@ def detect_event_kind(raw: dict[str, Any]) -> str:
     return "event"
 
 
-def _text(ctx: Context) -> str:
+def _text(ctx: ProviderContext) -> str:
     message = ctx.raw.get("message", "")
     if isinstance(message, str):
         return message
@@ -34,34 +34,43 @@ def _text(ctx: Context) -> str:
     return "".join(parts)
 
 
-def _message_type(ctx: Context) -> str | None:
+def _message_type(ctx: ProviderContext) -> str | None:
     return ctx.raw.get("message_type")
 
 
-def _user_id(ctx: Context) -> int | None:
+def _user_id(ctx: ProviderContext) -> int | None:
     return ctx.raw.get("user_id")
 
 
-def _group_id(ctx: Context) -> int | None:
+def _group_id(ctx: ProviderContext) -> int | None:
     return ctx.raw.get("group_id")
 
 
-def _message_id(ctx: Context) -> int | None:
+def _message_id(ctx: ProviderContext) -> int | None:
     return ctx.raw.get("message_id")
 
 
-def _self_id(ctx: Context) -> int | None:
+def _self_id(ctx: ProviderContext) -> int | None:
     return ctx.raw.get("self_id")
 
 
-def register_onebot_fields(bot: Bot, platform: str) -> None:
+def register_onebot_fields(bot: Bot, platform: str) -> tuple:
     scope = bot.scope("protocol.onebot11")
-    scope.provide(TEXT, _text, platform=platform)
-    scope.provide(MESSAGE_TYPE, _message_type, platform=platform)
-    scope.provide(USER_ID, _user_id, platform=platform)
-    scope.provide(GROUP_ID, _group_id, platform=platform)
-    scope.provide(MESSAGE_ID, _message_id, platform=platform)
-    scope.provide(SELF_ID, _self_id, platform=platform)
+    declarations = (
+        (TEXT, _text), (MESSAGE_TYPE, _message_type), (USER_ID, _user_id),
+        (GROUP_ID, _group_id), (MESSAGE_ID, _message_id), (SELF_ID, _self_id),
+    )
+    prior_ids = {handle.id for handle in bot.providers.registrations()}
+    handles = []
+    try:
+        for field, provider in declarations:
+            handles.append(scope.provide(field, provider, platform=platform))
+    except BaseException:
+        for handle in handles:
+            if handle.id not in prior_ids:
+                handle.revoke()
+        raise
+    return tuple(handles)
 
 
 __all__ = ["detect_event_kind", "register_onebot_fields"]

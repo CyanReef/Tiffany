@@ -1,18 +1,15 @@
 from core import Bot
-from fields import SELF_ID, USER_ID
-
-from .command import COMMAND
+from fields import SELF_ID, TEXT, USER_ID
 
 
 def register(bot: Bot) -> None:
     @bot.hook(
         name="ping",
         on="message",
-        needs=(COMMAND, USER_ID, SELF_ID),
+        needs=(TEXT, USER_ID, SELF_ID),
     )
     async def ping(ctx):
-        command = ctx.resolve(COMMAND)
-        if command is None or command.name != "ping":
+        if ctx.resolve(TEXT).strip().casefold() != "ping":
             return
 
         user_id = ctx.resolve(USER_ID)

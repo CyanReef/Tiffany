@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from .Field import Field
 from .Hook import Handler, Hook, HookErrorPolicy, Predicate
 from .Lifecycle import LifecycleError, RuntimeState
+from .Ownership import OwnerKey
 from .Service import ServiceKey
 
 
@@ -153,6 +154,8 @@ class Scope:
         self._active = False
 
     def _ensure_active(self) -> None:
+        if OwnerKey(self.owner) in self.bot._unloading_owners:
+            raise RuntimeError(f"scope {self.name!r} is unloading")
         if not self._active:
             raise RuntimeError(f"scope {self.name!r} has been unloaded")
 
