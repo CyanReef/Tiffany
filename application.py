@@ -10,6 +10,7 @@ import errno
 
 from adapters import create_adapter
 from core import APP_PATHS, Bot, OpenMetricsExporter, RuntimeState, ServiceKey
+from deployment.console import configure_utf8_output
 from deployment.credentials import CredentialStore
 from deployment.locking import InstanceLock
 from deployment.logging import setup_logging
@@ -40,6 +41,7 @@ def failure_exit_code(error: BaseException) -> int:
 class TiffanyApplication:
     @staticmethod
     def run(argv=None) -> int:
+        configure_utf8_output()
         parser = argparse.ArgumentParser(description="Tiffany application (use start.sh for supervision)")
         parser.add_argument("--home")
         args = parser.parse_args(argv)

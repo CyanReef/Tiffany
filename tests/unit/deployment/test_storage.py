@@ -124,10 +124,10 @@ class StorageTests(unittest.TestCase):
         for value in ("secret", "token123", "token456"):
             self.assertNotIn(value, output)
 
-    def run_launcher(self, *args):
+    def run_launcher(self, *args, env=None):
         return subprocess.run([sys.executable, "-B", str(PROJECT_ROOT / "launcher.py"), *args,
                                "--home", str(self.paths.home)], cwd=self.temporary.name,
-                              capture_output=True, text=True, encoding="utf-8", timeout=10)
+                              capture_output=True, text=True, encoding="utf-8", timeout=10, env=env)
 
     def test_check_config_works_from_other_directory_without_environment(self):
         commit_config(self.paths, onebot_config())
@@ -145,6 +145,8 @@ class StorageTests(unittest.TestCase):
         prepare.assert_called_once()
         self.assertIn(str(PROJECT_ROOT / "main.py"), supervise.call_args.args[0])
         self.assertEqual(supervise.call_args.kwargs["env"]["TIFFANY_HOME"], str(self.paths.home))
+        self.assertEqual(supervise.call_args.kwargs["env"]["PYTHONUTF8"], "1")
+        self.assertEqual(supervise.call_args.kwargs["env"]["PYTHONIOENCODING"], "utf-8")
 
     def test_noninteractive_missing_config_reports_configure(self):
         result = self.run_launcher()
@@ -157,10 +159,27 @@ class StorageTests(unittest.TestCase):
         previous = self.paths.config.read_bytes()
         source = Path(self.temporary.name) / "old.toml"
         source.write_bytes(b'# preserve comment\n[adapter]\ntype="onebot_websocket"\nplatform="napcat"\n')
-        result = self.run_launcher("configure", "--import-config", str(source))
+        environment = dict(os.environ, PYTHONUTF8="0", PYTHONIOENCODING="cp1252")
+        result = self.run_launcher("configure", "--import-config", str(source), env=environment)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("配置已导入", result.stdout)
         self.assertEqual(self.paths.config.read_bytes(), source.read_bytes())
         self.assertEqual(next(self.paths.backups.glob("Tiffany.toml.*.bak")).read_bytes(), previous)
+
+    def test_direct_configure_import_uses_utf8_with_legacy_output_encoding(self):
+        source = Path(self.temporary.name) / "旧配置.toml"
+        source.write_text('# 中文注释\n[bot]\nname="测试"\n'
+                          '[adapter]\ntype="onebot_websocket"\nplatform="napcat"\n', encoding="utf-8")
+        environment = dict(os.environ, PYTHONUTF8="0", PYTHONIOENCODING="cp1252")
+        result = subprocess.run(
+            [sys.executable, "-B", "-m", "deployment.configure", "--home", str(self.paths.home),
+             "--import-config", str(source)], cwd=PROJECT_ROOT, env=environment,
+            capture_output=True, text=True, encoding="utf-8", timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("配置已导入", result.stdout)
+        self.assertEqual(self.paths.config.read_bytes(), source.read_bytes())
+        self.assertEqual(load_config(self.paths.config).bot.name, "测试")
 
     def test_real_process_lock_and_crash_release(self):
         path = self.paths.run / "launcher.lock"

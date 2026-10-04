@@ -41,6 +41,8 @@ bash /opt/Tiffany/start.sh configure --import-config /opt/Tiffany/Tiffany.toml
 
 `start.bat` 调用 Windows 自带的 PowerShell，再运行共用启动器；执行策略放行仅作用于该次 PowerShell 进程。也可直接使用 `.\start.ps1`，适合已经允许执行本地脚本的 PowerShell。首次联网准备依赖，后续复用环境。
 
+启动器、配置命令和应用使用 UTF-8 输出，并为子进程设置 UTF-8 环境；直接执行 `python launcher.py` 或 `python -m deployment.configure` 也能在旧 Windows 编码环境中输出中文结果。诊断中的路径可能显示为完整路径，例如 `RUNNER~1` 展开为 `runneradmin`，它们可以指向同一个文件。
+
 ```powershell
 .\start.bat configure
 .\start.bat check-config

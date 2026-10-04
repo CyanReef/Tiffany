@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import subprocess
 import sys
 
 from settings import load_config
+from .console import configure_utf8_output, utf8_environment
 from .credentials import CredentialStore
 from .environment import prepare_environment
 from .locking import InstanceLock
@@ -29,6 +29,7 @@ def arguments(argv=None):
 
 
 def main(argv=None) -> int:
+    configure_utf8_output()
     args = arguments(argv)
     if sys.version_info < (3, 11):
         print("Tiffany requires Python 3.11+", file=sys.stderr)
@@ -49,7 +50,7 @@ def main(argv=None) -> int:
                     command.append("--login")
                 if args.import_config:
                     command.extend(["--import-config", args.import_config])
-                code = subprocess.call(command, cwd=PROJECT_ROOT)
+                code = subprocess.call(command, cwd=PROJECT_ROOT, env=utf8_environment())
                 if code or args.command != "run":
                     return code
                 if not paths.config.exists():
@@ -63,7 +64,8 @@ def main(argv=None) -> int:
                 logger.info("配置及凭据完整，未连接平台：%s", paths.config)
                 return 0
             python = prepare_environment(paths)
-            environment = dict(os.environ, TIFFANY_HOME=str(paths.home), PYTHONUNBUFFERED="1", PYTHONDONTWRITEBYTECODE="1")
+            environment = dict(utf8_environment(), TIFFANY_HOME=str(paths.home),
+                               PYTHONUNBUFFERED="1", PYTHONDONTWRITEBYTECODE="1")
             return Supervisor(config.restart).run(
                 [str(python), "-B", str(PROJECT_ROOT / "main.py"), "--home", str(paths.home)],
                 cwd=PROJECT_ROOT, env=environment,

@@ -175,6 +175,8 @@ python -B -m unittest tests.integration.qqofficial.test_gateway -v
 5. [supervisor.py](../deployment/supervisor.py) 启动应用子进程，处理停止信号和限次重启；重启循环不会重复安装依赖。退出码 2/3 停止，运行或清理故障按策略重试，用户停止不重试。
 6. [application.py](../application.py) 取得应用锁，读取配置和凭据，注册 `APP_PATHS`、健康导出服务、业务及 Adapter，再运行 Bot。第一次停止请求 drain，第二次升级 abort，启动器默认在 45 秒上限后终止子进程。
 
+启动器、配置命令与应用入口通过 [console.py](../deployment/console.py) 统一使用 UTF-8 输出，启动器也为配置和应用子进程设置 UTF-8 环境。这样在 Windows 默认使用旧编码时，成功保存配置后打印中文结果不会再导致命令失败。该设置发生在 CLI 入口，导入模块和单独使用核心不会修改控制台。
+
 路径类型定义在 [shared/paths.py](../shared/paths.py)，目录选择与权限操作在 [shared/path_setup.py](../shared/path_setup.py)。[deployment/paths.py](../deployment/paths.py) 保留旧导入出口；[core/Paths.py](../core/Paths.py) 仅提供业务使用的服务键和同一个类型。导入核心不需要部署层，显式调用 `initialize()` 才创建运行目录。
 
 配置和凭据的主动修改由 [storage.py](../deployment/storage.py) 先备份、再原子替换；[credentials.py](../deployment/credentials.py) 只按匹配的 AppID 提供密钥。[logging.py](../deployment/logging.py) 处理轮转与已知密钥脱敏。对照测试观察损坏文件、写入失败和取消扫码时旧数据为何仍能保留。

@@ -14,9 +14,9 @@
 | `integration/onebot` | 帧处理与 Hook 的协作、适配器安装和本机服务器生命周期 | 4 |
 | `integration/hooks` | Ping 回复、事件过滤和字段懒计算的完整流程 | 3 |
 | `integration/qqofficial` | 本机 HTTP/WebSocket、现有 Ping 复用、恢复、过载、心跳与资源清理 | 16 |
-| `unit/deployment` | 配置保护、备份、脱敏、扫码模拟、环境复用、跨平台隔离、失败恢复 | 24 |
+| `unit/deployment` | 配置保护、备份、脱敏、扫码模拟、环境复用、跨平台隔离、失败恢复、旧编码输出 | 25 |
 | `integration/deployment` | 真实 HTTP/Token/健康、更新包、覆盖回滚、锁、子进程、Windows 入口和限次重启 | 17 |
-| **合计** | Windows 跳过 4 项 POSIX 信号测试；Linux 跳过 5 项 Windows 入口测试 | **184** |
+| **合计** | Windows 跳过 4 项 POSIX 信号测试；Linux 跳过 5 项 Windows 入口测试 | **185** |
 
 单元测试隔离外部服务；分层测试使用新 Python 子进程阻止相邻层和可选依赖导入，路径用临时目录。集成测试验证多个真实组件的协作，其中适配器测试会启动本机 HTTP/WebSocket 监听。两类测试均不需要外部 NapCat 或腾讯账号。完整测试先执行 `python -m pip install --require-hashes --only-binary=:all: -r requirements-server.lock`。[CI](../.github/workflows/server.yml) 在 Linux Python 3.11～3.14、Windows Python 3.11/3.14 上运行，并检查发布物不含 data。账号与 24 小时持续运行验收见[部署说明](../docs/DEPLOYMENT.md)。
 
@@ -43,7 +43,7 @@ tests/
 │   │   ├── test_client.py                  # Token、回复序号、超时和取消
 │   │   └── test_adapter.py                 # 接纳、去重、恢复检查点
 │   └── deployment/
-│       ├── test_storage.py                 # 路径、配置、备份、凭据与脱敏
+│       ├── test_storage.py                 # 路径、配置、备份、凭据、脱敏和旧编码导入
 │       ├── test_environment.py             # 环境复用、平台变化与安装失败
 │       └── test_onboarding.py              # 扫码、过期、取消及提交回滚
 ├── integration/
@@ -68,7 +68,7 @@ tests/
 │       ├── test_health.py                  # 实际指标、健康变化与入站 Token
 │       ├── test_processes.py               # 锁、信号、停止上限与故障重启
 │       ├── test_release.py                 # 发布排除 data、覆盖更新与回滚
-│       └── test_windows_entrypoints.py     # Windows 脚本、Python 探测与参数传递
+│       └── test_windows_entrypoints.py     # Windows 脚本、Python 探测、短路径与参数传递
 └── support/
     ├── async_helpers.py                   # 同步测试的异步运行辅助
     ├── onebot.py                          # 内存 WebSocket 与运行时假对象

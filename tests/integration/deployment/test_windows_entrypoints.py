@@ -99,4 +99,10 @@ class WindowsEntryPointTests(unittest.TestCase):
                     result = self.invoke(entry, ["--help"], cwd=temporary, env=environment)
                     self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
                     self.assertIn("No module named 'venv'", result.stderr)
-                    self.assertIn(str(shim), result.stderr)
+                    # Get-Item expands Windows 8.3 aliases (RUNNER~1) to long
+                    # names. Both spellings identify the same failed candidate.
+                    candidates = (str(shim), str(shim.resolve()))
+                    self.assertTrue(
+                        any(path.casefold() in result.stderr.casefold() for path in candidates),
+                        result.stderr,
+                    )

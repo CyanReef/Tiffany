@@ -10,6 +10,7 @@ import sys
 import tomllib
 
 from settings import load_config, parse_config
+from .console import configure_utf8_output
 from .credentials import CredentialStore
 from .locking import InstanceLock
 from .onboarding import Binding, scan_binding
@@ -139,6 +140,7 @@ def wizard(paths: RuntimePaths, *, login=False, import_config: str | None = None
 
 
 def main():
+    configure_utf8_output()
     parser = argparse.ArgumentParser()
     parser.add_argument("--home", required=True)
     parser.add_argument("--login", action="store_true")

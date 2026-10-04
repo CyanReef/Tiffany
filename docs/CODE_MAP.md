@@ -209,6 +209,7 @@ flowchart TD
 | [shared/path_setup.py](../shared/path_setup.py) | home 优先级、目录创建与凭据备份权限；只在显式调用时操作文件 | [配置存储](../tests/unit/deployment/test_storage.py) |
 | [shared/__init__.py](../shared/__init__.py)、[deployment/paths.py](../deployment/paths.py) | 共享层边界和旧路径导入的兼容出口 | 分层隔离测试 |
 | [deployment/launcher.py](../deployment/launcher.py) | 命令参数、向导分支、环境和监督组合 | 配置存储、Windows 入口测试 |
+| [deployment/console.py](../deployment/console.py) | CLI 的 UTF-8 输出及子进程环境，避免旧 Windows 编码导致配置提交后报错 | [旧编码导入回归](../tests/unit/deployment/test_storage.py) |
 | [deployment/environment.py](../deployment/environment.py) | Python/平台/锁文件哈希隔离环境，安装与导入成功后标记可用 | [环境准备](../tests/unit/deployment/test_environment.py) |
 | [deployment/configure.py](../deployment/configure.py) | 首次向导、手动配置、显式导入与重新绑定 | 配置存储、扫码测试 |
 | [deployment/onboarding.py](../deployment/onboarding.py) | 官方 SDK 绑定、终端二维码、过期刷新与结果校验 | [扫码模拟](../tests/unit/deployment/test_onboarding.py) |

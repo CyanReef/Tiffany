@@ -4,7 +4,7 @@
 
 ## 已执行
 
-- `python -B -m unittest discover -s tests -t . -q`：184 项，180 项通过，4 项 POSIX 信号测试跳过，最后一次用时约 29.7 秒。保留原有 127 项的行为覆盖，配置测试分别验证解析与凭据读取。
+- 完整 unittest 回归：185 项，181 项通过，4 项 POSIX 信号测试跳过，最后一次用时约 27.5 秒。该轮显式关闭 UTF-8 模式并设置 cp1252 输出，覆盖旧 Windows 编码环境。保留原有 127 项的行为覆盖，配置测试分别验证解析与凭据读取。
 - 核心回归覆盖真实结束通知、关键故障传播、启动回滚、立即 abort、drain 共用预算、卸载中禁止注册、拒绝取消时保留服务、主动取消不误报关键故障、服务实例归属、异常日志、各 Adapter 指标和 Provider 撤销及部分注册回滚。
 - 真实本机 HTTP/OpenMetrics：指标格式、200/503 健康响应、连接和接纳状态变化。
 - 真实本机 WebSocket：无 Token、错误 Token、重复 Authorization 均返回 401，正确 Bearer Token 可连接。
@@ -14,21 +14,23 @@
 - `PIP_NO_INDEX=1` 下复用实际准备的环境；完整启动器从其他工作目录启动应用，端口占用以退出码 2 停止，未重试或安装依赖。
 - Windows 自带 PowerShell 5.1 实际运行 `start.bat` 和 `start.ps1`：从其他工作目录传入含空格的 `--home`，离线检查配置不重写文件或创建环境；验证自动寻找 Python、显式选择解释器、错误解释器及非交互缺少配置以 2 退出。环境平台变化的回归测试确认保留原环境、准备另一环境，切回原平台可复用。
 - Windows Python 检测回归：用 WindowsApps 路径下的真实 venv 验证可运行解释器不会被目录名排除；在 PATH 前加入失败的命令包装脚本后仍能找到后续可用 Python；失败探测保留候选路径和真实错误。同步修复到 `D:\Applications\Tiffany\start.ps1` 后，本机该目录的 `start.bat --help` 成功；用户原 CMD 环境的交互启动仍需重试确认。
+- 用户提供的 `3ba7ae6` 运行摘要显示 Linux CI Python 3.11～3.14 全部通过；Windows 3.14 日志定位到两类失败：短路径和完整路径字符串断言不等，以及 cp1252 无法输出中文导入结果。修复路径断言，统一 CLI 及子进程 UTF-8 输出；本机实际使用 8.3 临时目录别名并关闭 UTF-8 模式，三个失败场景全部通过。另新增直接配置命令旧编码导入回归。
+- workflow YAML 的两处依赖安装命令改为文本块；官方 actionlint 1.7.12 复现原文件第 15 行错误，并验证修复版通过。
 - 后续将 Ping 触发词改为不带斜杠的 `ping`：16 项相关测试通过，覆盖 OneBot 回复与消息过滤、QQ 群/C2C 回复、大小写与空白、去重和回复期间关闭。`/ping` 及其他非完整匹配文本不再触发该 Hook；已同步到本机运行目录，重启生效。
 - 覆盖更新和旧包回滚：原配置、凭据、业务文件和历史日志逐字节保留。
 - 构建服务器 ZIP、wheel、sdist，检查生成归档不含根目录 data。发布脚本也排除旧根目录配置。
 - 架构整理后，Runtime 拆分启动、关闭、组件调用与 owner 资源管理，Dispatcher 拆分声明/句柄、注册、路由和执行，保留公共入口。新子进程回归阻止协议/部署/可选包导入，验证核心可以独立运行并使用 `APP_PATHS`；另验证标准库启动器不依赖核心或第三方包。
 - 单并发调度回归：同一连接接纳 A1、A2、B1，A/B 为不同会话，执行 A1、B1、A2；会话内 FIFO 与跨会话公平性成立。README 和历史约束已移除单 worker 保证连接全局 FIFO 的错误说明。
-- README 及学习路线的三个完整 Python 示例实际运行通过；本地 Markdown 链接全部有效，源码地图覆盖 core、deployment、shared、adapters、clients、hooks 的全部 57 个 Python 模块。学习路线新增启动监督、持久路径、结束通知、服务归属与取消失败保留资源说明。
-- ZIP、wheel、sdist 均在临时目录中独立导入核心和启动器，并实际处理事件、执行 Scope abort、等待关闭，验证运行不依赖源码工作区，且归档不含 data。服务器发布包 91 条目、wheel 68 条目、sdist 100 条目；CI 也增加从构建 wheel 运行核心及导入启动器的检查。
+- README 及学习路线的三个完整 Python 示例实际运行通过；本地 Markdown 链接全部有效，源码地图覆盖 core、deployment、shared、adapters、clients、hooks 的全部 58 个 Python 模块。学习路线新增启动监督、持久路径、结束通知、服务归属、UTF-8 输出与取消失败保留资源说明。
+- ZIP、wheel、sdist 均在临时目录中独立导入核心和启动器，并实际处理事件、执行 Scope abort、等待关闭，验证运行不依赖源码工作区，且归档不含 data；CI 也增加从构建 wheel 运行核心及导入启动器的检查。
+- Windows 编码修复后重新构建 ZIP、wheel、sdist，确认三种归档包含当前 `deployment/console.py` 且不含 data；从 ZIP 和 wheel 直接执行配置导入，在 cp1252 环境中中文输出正常，保存的配置字节与原文件一致。
 - Python 源码语法检查和 `git diff --check` 通过。
 
 环境准备的实跑数据放在忽略的测试目录中，未为项目生成实际机器人运行配置，未登录真实 QQ 账号。
 
 ## 待执行
 
-- Linux CI Python 3.11～3.14：workflow 已提交到工作区，尚未在本次本机环境执行。四项 POSIX 测试覆盖信号转发、第二次停止、停止截止时间、实际应用 SIGTERM drain。截止时间测试缩短预算验证机制，实际默认为 45 秒。
-- Windows CI Python 3.11、3.14：workflow 已加入完整测试和发布包检查，尚未在 CI 执行。Windows 终端 Ctrl+C、真实 NapCat/QQ 联调仍需交互实测。
+- 修复后的 Linux/Windows CI 需随新提交确认；已有提交的 Linux 四版本已通过，Windows 的短路径和旧编码修复已在本机验证，尚未取得修复后的 CI 结果。四项 POSIX 测试使用缩短预算验证信号和停止机制，实际停止上限默认为 45 秒。Windows 终端 Ctrl+C 仍需交互实测。
 - Linux 服务器内 `bash start.sh` 和 screen 验收，包括文件权限、实际 45 秒强制停止、覆盖更新及回滚。
 - 真实 NapCat、QQ 扫码、群和私聊收发、权限与网关能力、断线恢复、停止期间已接纳事件回复。
 - 至少 24 小时持续运行。
