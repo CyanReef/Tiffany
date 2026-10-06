@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -13,11 +12,13 @@ from .Lifecycle import RuntimeState, ShutdownIncompleteError, StopMode
 from .Ownership import OwnerKey, same_owner
 from .Provider import ProviderContext, ProviderHandle, ProviderRegistry
 from .Runtime import Runtime
+from .SchedulerPolicy import SchedulerPolicy
 from .Scope import OwnerInUseError, Scope
 from .Service import ServiceHandle, ServiceKey, ServiceRegistry
 
 
 T = TypeVar("T")
+_MAX_VALIDATED_PLATFORMS = 256
 
 
 class Bot:
@@ -34,11 +35,11 @@ class Bot:
         "_unloading_owners",
     )
 
-    def __init__(self) -> None:
+    def __init__(self, *, scheduler: SchedulerPolicy | None = None) -> None:
         self.dispatcher = Dispatcher()
         self.providers = ProviderRegistry()
         self.services = ServiceRegistry()
-        self.runtime = Runtime(self)
+        self.runtime = Runtime(self, scheduler=scheduler)
         self.dispatcher.metrics = self.runtime.metrics
         self.application = Scope(self, "application", "application")
         self._scopes: dict[str, Scope] = {"application": self.application}
@@ -154,6 +155,13 @@ class Bot:
         self.providers.validate(self.dispatcher.required_fields(platform), platform)
         for key in self.dispatcher.required_services(platform):
             self.services.get(key)
+        # External event sources may supply arbitrarily many platform names.
+        # Eviction only repeats validation; it never changes dispatch semantics.
+        if (
+            platform not in self._validated_platforms
+            and len(self._validated_platforms) >= _MAX_VALIDATED_PLATFORMS
+        ):
+            self._validated_platforms.pop(next(iter(self._validated_platforms)))
         self._validated_platforms[platform] = self._validation_token()
 
     def _validate_registrations(self) -> None:
@@ -272,7 +280,7 @@ class Bot:
                 dependencies.append(f"service:{handle.namespace}")
         for handle in self.dispatcher.handles():
             hook = handle.hook
-            if not same_owner(hook.owner, owner) and (
+            if not same_owner(handle.owner, owner) and (
                 owned_fields.intersection(hook.needs)
                 or owned_services.intersection(hook.uses)
             ):

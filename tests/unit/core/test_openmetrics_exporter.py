@@ -10,6 +10,7 @@ from core.Metrics import MetricRegistry
 from core.OpenMetrics import (
     MissingOptionalDependencyError,
     OpenMetricsExporter,
+    _SnapshotCollector,
 )
 
 
@@ -190,6 +191,27 @@ class OpenMetricsExporterTests(unittest.IsolatedAsyncioTestCase):
             allow_remote=True,
         )
         self.assertEqual(exporter.host, "0.0.0.0")
+
+    async def test_budget_gauges_are_live_scrape_values_without_metric_writes(self):
+        import asyncio
+        from core import Bot, Envelope, SchedulerPolicy
+        bot = Bot(scheduler=SchedulerPolicy(max_events=64, buffer_budget_bytes=65536, max_concurrency=2))
+        bot.runtime.scheduler.global_limit = 0
+        async with bot:
+            collector = _SnapshotCollector(bot.metrics, _Metric, bot.runtime.scheduler)
+            future = bot.runtime.submit(Envelope('test', {}, session_id='one', admission_bytes=1024), reject=True)
+            def budget():
+                return {sample[0]: sample[2] for metric in collector.collect() for sample in metric.samples
+                        if sample[0].startswith('event_buffer_') or sample[0] == 'event_slots_available'}
+            self.assertEqual(budget()['event_buffer_estimated_bytes'], 1024)
+            self.assertEqual(budget()['event_buffer_available_bytes'], 64512)
+            self.assertEqual(budget()['event_slots_available'], 63)
+            self.assertEqual(bot.metrics.snapshot().get('event_buffer_estimated_bytes'), 0)
+            bot.runtime.scheduler.global_limit = 2
+            await future
+            await asyncio.sleep(0)
+            self.assertEqual(budget()['event_buffer_estimated_bytes'], 0)
+            self.assertEqual(budget()['event_slots_available'], 64)
 
 
 if __name__ == "__main__":

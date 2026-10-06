@@ -9,6 +9,7 @@ from typing import Any
 from .Context import Context
 from .Envelope import Envelope
 from .EventScheduler import EventScheduler
+from .SchedulerPolicy import SchedulerPolicy
 from .Lifecycle import (
     DuplicateAdapterIdError,
     LifecycleError,
@@ -103,13 +104,13 @@ class Runtime:
         "failure_cause",
     )
 
-    def __init__(self, bot: Any) -> None:
+    def __init__(self, bot: Any, *, scheduler: SchedulerPolicy | None = None) -> None:
         self.bot = bot
         self.state = RuntimeState.NEW
         self.tasks = TaskRegistry()
         self.tasks.set_failure_handler(self._task_failed)
         self.metrics = MetricRegistry()
-        self.scheduler = EventScheduler(self)
+        self.scheduler = EventScheduler(self, policy=scheduler)
         self.shutdown_report: ShutdownReport | None = None
         self.startup_results: list[StartupResult] = []
         self._adapters: list[Any] = []
@@ -163,7 +164,7 @@ class Runtime:
             self._adapter_owners.append((adapter, owner))
         adapter_id = getattr(adapter, "adapter_id", None)
         if adapter_id is not None:
-            self.scheduler.configure_adapter(str(adapter_id), 4)
+            self.scheduler.configure_adapter(str(adapter_id))
         return adapter
 
     def add_lifespan(
@@ -199,17 +200,22 @@ class Runtime:
     async def start(self) -> None:
         return await startup.start(self)
 
-    async def emit(
-        self,
-        envelope: Envelope,
-        *,
-        reject: bool = True,
-        wait: bool = True,
-    ) -> Context | asyncio.Future[Context] | None:
+    def submit(self, envelope: Envelope, *, reject: bool = False) -> asyncio.Future[Context] | None:
+        """Admit on the runtime loop without creating a submission Task.
+
+        Cancelling the returned result Future does not cancel accepted work.
+        """
+        work = self._submit(envelope, reject=reject, background=True)
+        return None if work is None else work.future
+
+    def _submit(self, envelope: Envelope, *, reject: bool, background: bool):
         if self.state != RuntimeState.RUNNING:
             raise RuntimeNotRunningError(self.state)
         if not self.bot._is_validated(envelope.platform):
             self.bot.validate(envelope.platform)
+        return self.scheduler.submit(envelope, reject=reject, background=background)
+
+    def _capture_event(self, envelope: Envelope):
         snapshot = RuntimeSnapshot(
             hooks=self.bot.dispatcher.snapshot(),
             providers=self.bot.providers.snapshot(),
@@ -218,14 +224,20 @@ class Runtime:
         owners = self.bot.dispatcher._owners_for(
             envelope.platform, envelope.kind, snapshot.hooks
         )
-        return await self.scheduler.submit(
-            envelope,
-            adapter_id=envelope.adapter_id,
-            reject=reject,
-            snapshot=snapshot,
-            wait=wait,
-            owners=owners,
-        )
+        return snapshot, owners
+
+    async def emit(self, envelope: Envelope, *, reject: bool = True, wait: bool = True
+                   ) -> Context | asyncio.Future[Context] | None:
+        work = self._submit(envelope, reject=reject, background=not wait)
+        if work is None:
+            return None
+        if not wait:
+            return work.future
+        try:
+            return await work.future
+        except asyncio.CancelledError:
+            self.scheduler.cancel_waiter(work)
+            raise
 
     def _retain_event_owners(self, owners: tuple[object, ...]) -> None:
         return owner_resources._retain_event_owners(self, owners)
@@ -274,14 +286,12 @@ class Runtime:
             )
             return ctx
         finally:
-            self.metrics.observe(
-                "event_duration_seconds",
-                time.perf_counter() - started,
-                labels={
-                    "platform": envelope.platform,
-                    "adapter": envelope.adapter_id,
-                },
+            duration = time.perf_counter() - started
+            bound = self.metrics._bind(
+                ("event_duration_seconds_count", "event_duration_seconds_sum"),
+                {"platform": envelope.platform, "adapter": envelope.adapter_id},
             )
+            self.metrics._batch((("inc", bound, (1.0, duration)),))
 
     async def stop(self, mode: StopMode = "drain") -> ShutdownReport:
         return await shutdown.stop(self, mode)
@@ -330,6 +340,10 @@ class Runtime:
                     critical=False,
                 )
             return
+        self._request_critical_abort(error)
+
+    def _request_critical_abort(self, error: BaseException) -> None:
+        """Shared first-failure path for supervised tasks and direct dispatch."""
         if self.state in (
             RuntimeState.RUNNING,
             RuntimeState.STARTING,

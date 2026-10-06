@@ -24,7 +24,8 @@ python -m examples.qqofficial
 | `app_id` | 必填字符串 | 应用身份，不是机器人用户 ID |
 | `app_secret_env` | `TIFFANY_QQBOT_SECRET` | 保存 AppSecret 的环境变量名；缺失时启动前报错 |
 | `sandbox` | `false` | 选择生产或沙箱 API 地址；能否收到消息取决于账号和场景的后台配置 |
-| `workers` | `4` | 适配器在 Scheduler 中的并发上限，范围 1～4 |
+| `workers` | 不设置 | 继承全局 Scheduler 并发；显式正整数可降低此适配器上限，全局额度仍生效 |
+| `max_inflight` | `16` | QQ HTTP 调用的独立并发额度，不随事件并发扩大 |
 | `call_timeout` | `30.0` 秒 | HTTP 调用总预算，包括 Token 刷新、并发等待和认证重试 |
 
 `start()` 获取 Token 和 `/gateway`，连接任务等待 Runtime 进入 RUNNING，再完成 HELLO → IDENTIFY → READY。日志出现 `QQ official connected` 才代表已完成网关鉴权；`bot.start()` 返回时可能仍在连接。
@@ -79,7 +80,7 @@ Field 必须复用 [fields.py](../fields.py) 中的同一实例。适配器 setu
 - IDENTIFY 固定订阅群与 C2C 的 `1 << 25`，使用单连接分片 `[0, 1]`。
 - 连接监督任务和当前连接的心跳任务都通过 `runtime.tasks.spawn(owner=adapter)` 注册。每个账号正常运行时只有这两个协议后台任务。
 - QQ 心跳使用服务器指定周期、最新收到的 `s`，并检查 ACK；库层定时 Ping 关闭。接收循环不等待 Hook 完成，慢业务不会阻塞心跳和后续控制帧读取。
-- WebSocket 接收缓冲为 16 帧，单条消息上限 1 MiB。Scheduler 默认容量 256（包含正在执行的事件），单会话积压 32，适配器默认并发 4。
+- WebSocket 接收缓冲为 16 帧，单条消息上限 1 MiB。Scheduler 默认共享容量 8192（包含正在执行的事件）、64 MiB 估算占用、全局并发 64；适配器继承全局并发，显式 `workers` 可设更低上限。同会话保持串行，接纳规则见 [弹性调度说明](ELASTIC_SCHEDULING.md)。QQ HTTP `max_inflight` 独立配置，默认 16，事件扩容不扩大下游 API 额度。
 - 会话键为 `AppID:group:group_openid` 或 `AppID:private:user_openid`。同会话按接收顺序处理，不同会话可以并行；框架不重新排列平台产生的事件。
 
 两个序号用途不同：

@@ -1,0 +1,622 @@
+{
+  "schema_version": 1,
+  "started_at_utc": "2026-10-04T10:23:45.419490+00:00",
+  "method": {
+    "repeats": 5,
+    "events_per_case": 1000,
+    "warmup_per_case": 100,
+    "event_concurrency": 16,
+    "producer_sessions": 16,
+    "handler_sleep_seconds": 0.005,
+    "gc_enabled": true,
+    "network": false,
+    "llm": false
+  },
+  "tiffany_source_sha256": "33fa609c8d6229cea5c4f4e93e3e846a3d75a9d45380dfca346dec11b4a4c4ea",
+  "supplement_script_sha256": "f050d2b9d59b689db29d2fb5e878e5a2597df1657479aa9c1638840d962fc6d2",
+  "samples": [
+    {
+      "framework": "tiffany",
+      "cases": [
+        {
+          "name": "io_16_sessions",
+          "matching": 1,
+          "unmatched": 0,
+          "sessions": 16,
+          "delay": 0.005,
+          "event_concurrency": 16,
+          "events": 1000,
+          "elapsed_seconds": 0.9536536000086926,
+          "events_per_second": 1048.598778414809,
+          "cpu_seconds": 0.1875,
+          "latency_p50_us": 15172.3,
+          "latency_p95_us": 15763.83,
+          "latency_p99_us": 16158.608,
+          "latency_max_us": 16167.6,
+          "rss_before_bytes": 36581376,
+          "rss_after_bytes": 38510592,
+          "setup_seconds": 0.09663290000753477,
+          "verified_handler_calls": 1000,
+          "verified_characters": 5000,
+          "verified_unmatched_calls": 0
+        }
+      ],
+      "event_loop": "ProactorEventLoop",
+      "round": 0
+    },
+    {
+      "framework": "nonebot",
+      "cases": [
+        {
+          "name": "io_16_sessions",
+          "matching": 1,
+          "unmatched": 0,
+          "sessions": 16,
+          "delay": 0.005,
+          "event_concurrency": 16,
+          "events": 1000,
+          "elapsed_seconds": 0.9699025999871083,
+          "events_per_second": 1031.0313633691587,
+          "cpu_seconds": 0.421875,
+          "latency_p50_us": 15158.05,
+          "latency_p95_us": 16256.865,
+          "latency_p99_us": 29726.714,
+          "latency_max_us": 29889.6,
+          "rss_before_bytes": 63365120,
+          "rss_after_bytes": 63414272,
+          "setup_seconds": 1.2237523999938276,
+          "verified_handler_calls": 1000,
+          "verified_characters": 5000,
+          "verified_unmatched_calls": 0
+        }
+      ],
+      "event_loop": "ProactorEventLoop",
+      "round": 0
+    },
+    {
+      "framework": "astrbot",
+      "cases": [
+        {
+          "name": "io_16_sessions",
+          "matching": 1,
+          "unmatched": 0,
+          "sessions": 16,
+          "delay": 0.005,
+          "event_concurrency": 16,
+          "events": 1000,
+          "elapsed_seconds": 0.9575971000012942,
+          "events_per_second": 1044.2805225690936,
+          "cpu_seconds": 0.15625,
+          "latency_p50_us": 15168.15,
+          "latency_p95_us": 15975.235,
+          "latency_p99_us": 16933.528,
+          "latency_max_us": 17682.6,
+          "rss_before_bytes": 249094144,
+          "rss_after_bytes": 249118720,
+          "setup_seconds": 12.612441500008572,
+          "verified_handler_calls": 1000,
+          "verified_characters": 5000,
+          "verified_unmatched_calls": 0,
+          "pipeline_stages": [
+            "WakingCheckStage",
+            "WhitelistCheckStage",
+            "SessionStatusCheckStage",
+            "RateLimitStage",
+            "ContentSafetyCheckStage",
+            "PreProcessStage",
+            "ProcessStage",
+            "ResultDecorateStage",
+            "RespondStage"
+          ],
+          "session_preferences": "process-write cache"
+        }
+      ],
+      "event_loop": "ProactorEventLoop",
+      "round": 0
+    },
+    {
+      "framework": "nonebot",
+      "cases": [
+        {
+          "name": "io_16_sessions",
+          "matching": 1,
+          "unmatched": 0,
+          "sessions": 16,
+          "delay": 0.005,
+          "event_concurrency": 16,
+          "events": 1000,
+          "elapsed_seconds": 0.9751079000125173,
+          "events_per_second": 1025.5275339141065,
+          "cpu_seconds": 0.5,
+          "latency_p50_us": 15334.5,
+          "latency_p95_us": 16666.91,
+          "latency_p99_us": 24387.181,
+          "latency_max_us": 24956.9,
+          "rss_before_bytes": 64323584,
+          "rss_after_bytes": 64327680,
+          "setup_seconds": 1.194231800007401,
+          "verified_handler_calls": 1000,
+          "verified_characters": 5000,
+          "verified_unmatched_calls": 0
+        }
+      ],
+      "event_loop": "ProactorEventLoop",
+      "round": 1
+    },
+    {
+      "framework": "astrbot",
+      "cases": [
+        {
+          "name": "io_16_sessions",
+          "matching": 1,
+          "unmatched": 0,
+          "sessions": 16,
+          "delay": 0.005,
+          "event_concurrency": 16,
+          "events": 1000,
+          "elapsed_seconds": 0.9695214000239503,
+          "events_per_second": 1031.436748044238,
+          "cpu_seconds": 0.109375,
+          "latency_p50_us": 15353.45,
+          "latency_p95_us": 16185.15,
+          "latency_p99_us": 19109.94,
+          "latency_max_us": 20071.1,
+          "rss_before_bytes": 248287232,
+          "rss_after_bytes": 248299520,
+          "setup_seconds": 13.023891399992863,
+          "verified_handler_calls": 1000,
+          "verified_characters": 5000,
+          "verified_unmatched_calls": 0,
+          "pipeline_stages": [
+            "WakingCheckStage",
+            "WhitelistCheckStage",
+            "SessionStatusCheckStage",
+            "RateLimitStage",
+            "ContentSafetyCheckStage",
+            "PreProcessStage",
+            "ProcessStage",
+            "ResultDecorateStage",
+            "RespondStage"
+          ],
+          "session_preferences": "process-write cache"
+        }
+      ],
+      "event_loop": "ProactorEventLoop",
+      "round": 1
+    },
+    {
+      "framework": "tiffany",
+      "cases": [
+        {
+          "name": "io_16_sessions",
+          "matching": 1,
+          "unmatched": 0,
+          "sessions": 16,
+          "delay": 0.005,
+          "event_concurrency": 16,
+          "events": 1000,
+          "elapsed_seconds": 0.9589573999983259,
+          "events_per_second": 1042.7991900388336,
+          "cpu_seconds": 0.203125,
+          "latency_p50_us": 15234.7,
+          "latency_p95_us": 16046.115,
+          "latency_p99_us": 16524.385,
+          "latency_max_us": 16624.3,
+          "rss_before_bytes": 36499456,
+          "rss_after_bytes": 38334464,
+          "setup_seconds": 0.11278809999930672,
+          "verified_handler_calls": 1000,
+          "verified_characters": 5000,
+          "verified_unmatched_calls": 0
+        }
+      ],
+      "event_loop": "ProactorEventLoop",
+      "round": 1
+    },
+    {
+      "framework": "astrbot",
+      "cases": [
+        {
+          "name": "io_16_sessions",
+          "matching": 1,
+          "unmatched": 0,
+          "sessions": 16,
+          "delay": 0.005,
+          "event_concurrency": 16,
+          "events": 1000,
+          "elapsed_seconds": 0.9547898000164423,
+          "events_per_second": 1047.3509457084472,
+          "cpu_seconds": 0.125,
+          "latency_p50_us": 15182.4,
+          "latency_p95_us": 16387.145,
+          "latency_p99_us": 16630.286,
+          "latency_max_us": 16780.3,
+          "rss_before_bytes": 246816768,
+          "rss_after_bytes": 246833152,
+          "setup_seconds": 14.621105199999874,
+          "verified_handler_calls": 1000,
+          "verified_characters": 5000,
+          "verified_unmatched_calls": 0,
+          "pipeline_stages": [
+            "WakingCheckStage",
+            "WhitelistCheckStage",
+            "SessionStatusCheckStage",
+            "RateLimitStage",
+            "ContentSafetyCheckStage",
+            "PreProcessStage",
+            "ProcessStage",
+            "ResultDecorateStage",
+            "RespondStage"
+          ],
+          "session_preferences": "process-write cache"
+        }
+      ],
+      "event_loop": "ProactorEventLoop",
+      "round": 2
+    },
+    {
+      "framework": "tiffany",
+      "cases": [
+        {
+          "name": "io_16_sessions",
+          "matching": 1,
+          "unmatched": 0,
+          "sessions": 16,
+          "delay": 0.005,
+          "event_concurrency": 16,
+          "events": 1000,
+          "elapsed_seconds": 0.9534130999818444,
+          "events_per_second": 1048.8632891860232,
+          "cpu_seconds": 0.125,
+          "latency_p50_us": 15223.15,
+          "latency_p95_us": 15967.605,
+          "latency_p99_us": 16077.812,
+          "latency_max_us": 16082.9,
+          "rss_before_bytes": 36294656,
+          "rss_after_bytes": 38125568,
+          "setup_seconds": 0.11859599998570047,
+          "verified_handler_calls": 1000,
+          "verified_characters": 5000,
+          "verified_unmatched_calls": 0
+        }
+      ],
+      "event_loop": "ProactorEventLoop",
+      "round": 2
+    },
+    {
+      "framework": "nonebot",
+      "cases": [
+        {
+          "name": "io_16_sessions",
+          "matching": 1,
+          "unmatched": 0,
+          "sessions": 16,
+          "delay": 0.005,
+          "event_concurrency": 16,
+          "events": 1000,
+          "elapsed_seconds": 1.0451625999994576,
+          "events_per_second": 956.7889245180788,
+          "cpu_seconds": 0.53125,
+          "latency_p50_us": 15375.9,
+          "latency_p95_us": 29976.624999999996,
+          "latency_p99_us": 36967.40999999997,
+          "latency_max_us": 44611.5,
+          "rss_before_bytes": 64335872,
+          "rss_after_bytes": 64339968,
+          "setup_seconds": 1.4232600000104867,
+          "verified_handler_calls": 1000,
+          "verified_characters": 5000,
+          "verified_unmatched_calls": 0
+        }
+      ],
+      "event_loop": "ProactorEventLoop",
+      "round": 2
+    },
+    {
+      "framework": "tiffany",
+      "cases": [
+        {
+          "name": "io_16_sessions",
+          "matching": 1,
+          "unmatched": 0,
+          "sessions": 16,
+          "delay": 0.005,
+          "event_concurrency": 16,
+          "events": 1000,
+          "elapsed_seconds": 0.9541108999983408,
+          "events_per_second": 1048.096190916317,
+          "cpu_seconds": 0.125,
+          "latency_p50_us": 15169.1,
+          "latency_p95_us": 16563.949999999997,
+          "latency_p99_us": 18225.374,
+          "latency_max_us": 18539.6,
+          "rss_before_bytes": 36376576,
+          "rss_after_bytes": 38215680,
+          "setup_seconds": 0.10785159998340532,
+          "verified_handler_calls": 1000,
+          "verified_characters": 5000,
+          "verified_unmatched_calls": 0
+        }
+      ],
+      "event_loop": "ProactorEventLoop",
+      "round": 3
+    },
+    {
+      "framework": "nonebot",
+      "cases": [
+        {
+          "name": "io_16_sessions",
+          "matching": 1,
+          "unmatched": 0,
+          "sessions": 16,
+          "delay": 0.005,
+          "event_concurrency": 16,
+          "events": 1000,
+          "elapsed_seconds": 0.9688126999826636,
+          "events_per_second": 1032.1912584526342,
+          "cpu_seconds": 0.375,
+          "latency_p50_us": 15085.7,
+          "latency_p95_us": 16323.234999999999,
+          "latency_p99_us": 35801.578,
+          "latency_max_us": 36786.7,
+          "rss_before_bytes": 64049152,
+          "rss_after_bytes": 64053248,
+          "setup_seconds": 2.051491599995643,
+          "verified_handler_calls": 1000,
+          "verified_characters": 5000,
+          "verified_unmatched_calls": 0
+        }
+      ],
+      "event_loop": "ProactorEventLoop",
+      "round": 3
+    },
+    {
+      "framework": "astrbot",
+      "cases": [
+        {
+          "name": "io_16_sessions",
+          "matching": 1,
+          "unmatched": 0,
+          "sessions": 16,
+          "delay": 0.005,
+          "event_concurrency": 16,
+          "events": 1000,
+          "elapsed_seconds": 0.9423872000188567,
+          "events_per_second": 1061.1349559713783,
+          "cpu_seconds": 0.21875,
+          "latency_p50_us": 15041.1,
+          "latency_p95_us": 17378.12,
+          "latency_p99_us": 21208.958,
+          "latency_max_us": 21725.8,
+          "rss_before_bytes": 248602624,
+          "rss_after_bytes": 248623104,
+          "setup_seconds": 17.797641000011936,
+          "verified_handler_calls": 1000,
+          "verified_characters": 5000,
+          "verified_unmatched_calls": 0,
+          "pipeline_stages": [
+            "WakingCheckStage",
+            "WhitelistCheckStage",
+            "SessionStatusCheckStage",
+            "RateLimitStage",
+            "ContentSafetyCheckStage",
+            "PreProcessStage",
+            "ProcessStage",
+            "ResultDecorateStage",
+            "RespondStage"
+          ],
+          "session_preferences": "process-write cache"
+        }
+      ],
+      "event_loop": "ProactorEventLoop",
+      "round": 3
+    },
+    {
+      "framework": "nonebot",
+      "cases": [
+        {
+          "name": "io_16_sessions",
+          "matching": 1,
+          "unmatched": 0,
+          "sessions": 16,
+          "delay": 0.005,
+          "event_concurrency": 16,
+          "events": 1000,
+          "elapsed_seconds": 1.4176039999874774,
+          "events_per_second": 705.4156167793217,
+          "cpu_seconds": 0.578125,
+          "latency_p50_us": 18359.65,
+          "latency_p95_us": 31307.994999999995,
+          "latency_p99_us": 39342.89,
+          "latency_max_us": 43183.2,
+          "rss_before_bytes": 63463424,
+          "rss_after_bytes": 63475712,
+          "setup_seconds": 2.114736499992432,
+          "verified_handler_calls": 1000,
+          "verified_characters": 5000,
+          "verified_unmatched_calls": 0
+        }
+      ],
+      "event_loop": "ProactorEventLoop",
+      "round": 4
+    },
+    {
+      "framework": "astrbot",
+      "cases": [
+        {
+          "name": "io_16_sessions",
+          "matching": 1,
+          "unmatched": 0,
+          "sessions": 16,
+          "delay": 0.005,
+          "event_concurrency": 16,
+          "events": 1000,
+          "elapsed_seconds": 0.9679673000064213,
+          "events_per_second": 1033.0927501304704,
+          "cpu_seconds": 0.171875,
+          "latency_p50_us": 15053.55,
+          "latency_p95_us": 16487.72,
+          "latency_p99_us": 23634.106999999993,
+          "latency_max_us": 27513.8,
+          "rss_before_bytes": 251854848,
+          "rss_after_bytes": 251875328,
+          "setup_seconds": 19.8072238000168,
+          "verified_handler_calls": 1000,
+          "verified_characters": 5000,
+          "verified_unmatched_calls": 0,
+          "pipeline_stages": [
+            "WakingCheckStage",
+            "WhitelistCheckStage",
+            "SessionStatusCheckStage",
+            "RateLimitStage",
+            "ContentSafetyCheckStage",
+            "PreProcessStage",
+            "ProcessStage",
+            "ResultDecorateStage",
+            "RespondStage"
+          ],
+          "session_preferences": "process-write cache"
+        }
+      ],
+      "event_loop": "ProactorEventLoop",
+      "round": 4
+    },
+    {
+      "framework": "tiffany",
+      "cases": [
+        {
+          "name": "io_16_sessions",
+          "matching": 1,
+          "unmatched": 0,
+          "sessions": 16,
+          "delay": 0.005,
+          "event_concurrency": 16,
+          "events": 1000,
+          "elapsed_seconds": 0.9544614999904297,
+          "events_per_second": 1047.7111963238192,
+          "cpu_seconds": 0.140625,
+          "latency_p50_us": 15072.7,
+          "latency_p95_us": 16330.315,
+          "latency_p99_us": 19794.315,
+          "latency_max_us": 19859.5,
+          "rss_before_bytes": 36532224,
+          "rss_after_bytes": 38363136,
+          "setup_seconds": 0.17292149999411777,
+          "verified_handler_calls": 1000,
+          "verified_characters": 5000,
+          "verified_unmatched_calls": 0
+        }
+      ],
+      "event_loop": "ProactorEventLoop",
+      "round": 4
+    }
+  ],
+  "summary": [
+    {
+      "framework": "tiffany",
+      "case": "io_16_sessions",
+      "samples": 5,
+      "events_per_second": {
+        "median": 1048.096190916317,
+        "min": 1042.7991900388336,
+        "max": 1048.8632891860232
+      },
+      "latency_p50_us": {
+        "median": 15172.3,
+        "min": 15072.7,
+        "max": 15234.7
+      },
+      "latency_p95_us": {
+        "median": 16046.115,
+        "min": 15763.83,
+        "max": 16563.949999999997
+      },
+      "latency_p99_us": {
+        "median": 16524.385,
+        "min": 16077.812,
+        "max": 19794.315
+      },
+      "rss_before_bytes": {
+        "median": 36499456,
+        "min": 36294656,
+        "max": 36581376
+      },
+      "cpu_seconds": {
+        "median": 0.140625,
+        "min": 0.125,
+        "max": 0.203125
+      }
+    },
+    {
+      "framework": "nonebot",
+      "case": "io_16_sessions",
+      "samples": 5,
+      "events_per_second": {
+        "median": 1025.5275339141065,
+        "min": 705.4156167793217,
+        "max": 1032.1912584526342
+      },
+      "latency_p50_us": {
+        "median": 15334.5,
+        "min": 15085.7,
+        "max": 18359.65
+      },
+      "latency_p95_us": {
+        "median": 16666.91,
+        "min": 16256.865,
+        "max": 31307.994999999995
+      },
+      "latency_p99_us": {
+        "median": 35801.578,
+        "min": 24387.181,
+        "max": 39342.89
+      },
+      "rss_before_bytes": {
+        "median": 64049152,
+        "min": 63365120,
+        "max": 64335872
+      },
+      "cpu_seconds": {
+        "median": 0.5,
+        "min": 0.375,
+        "max": 0.578125
+      }
+    },
+    {
+      "framework": "astrbot",
+      "case": "io_16_sessions",
+      "samples": 5,
+      "events_per_second": {
+        "median": 1044.2805225690936,
+        "min": 1031.436748044238,
+        "max": 1061.1349559713783
+      },
+      "latency_p50_us": {
+        "median": 15168.15,
+        "min": 15041.1,
+        "max": 15353.45
+      },
+      "latency_p95_us": {
+        "median": 16387.145,
+        "min": 15975.235,
+        "max": 17378.12
+      },
+      "latency_p99_us": {
+        "median": 19109.94,
+        "min": 16630.286,
+        "max": 23634.106999999993
+      },
+      "rss_before_bytes": {
+        "median": 248602624,
+        "min": 246816768,
+        "max": 251854848
+      },
+      "cpu_seconds": {
+        "median": 0.15625,
+        "min": 0.109375,
+        "max": 0.21875
+      }
+    }
+  ],
+  "finished_at_utc": "2026-10-04T10:26:03.792459+00:00"
+}

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Generic, TypeVar, cast
-from collections.abc import Callable
 
 from .Ownership import same_owner
 

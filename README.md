@@ -6,7 +6,7 @@ Tiffany 是一个用 Python 编写的异步机器人运行时。接入层保存�
 
 Python **3.11+** · **MIT** · 当前版本 **0.1.0**
 
-[快速开始](#快速开始) · [核心设计](#核心设计) · [进阶扩展](#进阶扩展) · [性能实测](#性能实测) · [学习与开发](#学习与开发)
+[快速开始](#快速开始) · [核心设计](#核心设计) · [进阶扩展](#进阶扩展) · [性能实测](#性能实测) · [学习与开发](#学习与开发) · [文档导航](docs/README.md)
 
 ## 项目能做什么
 
@@ -22,7 +22,7 @@ Python **3.11+** · **MIT** · 当前版本 **0.1.0**
 
 ## 快速开始
 
-Linux 服务器预装 Python 3.11+、venv 和 screen，然后在项目根目录启动。
+Linux 服务器预装 Python 3.11+ 和 venv，然后在项目根目录启动。长期后台运行可使用 screen。
 
 ### 1. 安装
 
@@ -52,7 +52,7 @@ bash start.sh
 
 程序默认监听 `127.0.0.1:6199`。在 NapCat 或其他 OneBot 实现中启用**反向 WebSocket 客户端**，连接到 `ws://127.0.0.1:6199`，再向机器人发送 `ping`。
 
-地址、端口、并发和队列参数在 `data/config/Tiffany.toml` 中设置，参考 [OneBot 示例](examples/Tiffany.onebot.toml)。Token 可在向导中隐藏输入；非本地绑定要求 Token。当前适配器支持一个活动连接。同一 `(adapter_id, session_id)` 内按接纳顺序执行；`workers = 1` 限制为单并发，跨会话仍按公平调度轮流执行，不保证整个连接的全局接收顺序。
+地址、端口、并发和共享缓冲预算在 `data/config/Tiffany.toml` 中设置，参考 [OneBot 示例](examples/Tiffany.onebot.toml)。Token 可在向导中隐藏输入；非本地绑定要求 Token。当前适配器支持一个活动连接。同一 `(adapter_id, session_id)` 内按接纳顺序执行；`workers = 1` 限制为单并发，跨会话仍按公平调度轮流执行，不保证整个连接的全局接收顺序。
 
 ### 3. 连接 QQ 官 Bot
 
@@ -118,10 +118,10 @@ flowchart LR
 | 保留原始数据 | `Envelope.raw` 保存平台事件；协议状态与控制帧由 Adapter 管理 |
 | 按需计算 | `Context.resolve()` 在本事件内缓存字段，未读取的字段无需解析 |
 | 先路由，再执行业务 | 按 `platform`、`kind` 筛选 Hook，缓存当前注册快照的路由 |
-| 有界接纳 | Scheduler 限制在途事件、会话积压和并发，过载时明确拒绝 |
+| 有界接纳 | Scheduler 共享事件数与估算占用预算，按需创建执行任务，过载时明确拒绝 |
 | 按资源归属清理 | Scope 管理一组注册与资源，Runtime 监督任务并负责关闭 |
 
-同一个会话键的事件串行处理，不同会话可以并行；实际顺序取决于 Adapter 提供的会话键。核心调度默认容量为 **256**、每会话积压 **32**、全局并发 **16**；适配器默认并发为 **4**。这些是资源限制，实际吞吐量取决于 Hook 工作量和外部 I/O。
+同一个会话键的事件串行处理，不同会话可以并行；实际顺序取决于 Adapter 提供的会话键。默认共享 **8192** 个在途事件、**64 MiB 估算占用预算**、最多 **64** 个执行任务；适配器继承全局并发，显式 `workers` 可降低上限。会话没有固定积压上限，单会话突发按共享余量接纳；总预算的 1/8 为低占用会话保留。估算预算不等于进程 RSS 上限，实际吞吐量取决于 Hook 工作量和外部 I/O。配置与接纳契约见 [弹性调度说明](docs/ELASTIC_SCHEDULING.md)。
 
 ## 进阶扩展
 
@@ -142,25 +142,25 @@ flowchart LR
 
 ## 性能实测
 
-下面是本机运行的**微基准**：测量轻量 Hook 的完整事件分发路径，以及字段读取开销。图中的误差线表示多轮结果的最小值到最大值；不包含网络、真实消息解析或回复耗时。
+共享预算与按需调度的 [前后性能验收](docs/PERFORMANCE_ELASTIC.md) 使用实施前工作区源码作为基线，覆盖正常负载、HTTP 闭环、固定到达、突发排空和 30 分钟稳定性。报告保留逐轮数据、统计区间、未通过结果、源码快照及复测命令，区分功能完成与性能门槛是否通过。完整回归为 **234 项**，Windows 跳过 4 项；30 分钟周期性突发完成 **280,064** 条，排空后预算、任务和 owner 引用均归零。
 
-本次使用 Windows 11、CPython 3.14.4 和 Ryzen 9 7940H，重复 7 轮。单个轻量 Hook 的串行分发约为 **1.3 万事件/秒**；本次预热测试中，额外注册 1,000 个无关 Hook 后仍接近该量级。
+**当前整体性能验收未通过。** 正常负载的 10 Hook 吞吐中位数回退 3.80%，五个核心场景的配对区间仍不能排除 3% 回退；5 ms / 64 会话的 HTTP 尾延迟及固定到达吞吐也未达门槛。功能与稳定性通过不代表性能保证已经达成，具体结果与测量限制见报告。
 
-![事件分发实测：匹配 Hook 与无关 Hook 数量对吞吐量的影响](docs/assets/performance/dispatch.zh-CN.png)
+2026-10-06 的 [四框架离线消息处理基准](docs/FRAMEWORK_COMPARISON_REPRESENTATIVE.md) 使用更新后的 Tiffany 源码，比较 Tiffany、NoneBot、AstrBot、Koishi。六幅卡片式图表配有对应数值表，覆盖消息处理、规则与消息规模、HTTP I/O、当前默认突发接纳及完成、进程初始化与内存，以及 AstrBot 配置读取路径。每个框架有五次进程重复测量，保留指标方向提示、单位、中位数和最小–最大范围。报告提供指标定义、原始数据、源码快照和矢量图；结论限于所测源码的离线入口，上一轮结果另行归档。
 
-![字段读取实测：首次解析与缓存读取](docs/assets/performance/fields.zh-CN.png)
+![四框架消息处理与资源比较](docs/assets/performance/framework-representative-overview.png)
 
-测试环境、全部样本、测量边界与结果解读见 [性能基准说明](docs/BENCHMARKS.md)。这组数据用于理解当前实现的开销，不代表线上机器人吞吐量，也不构成与其他框架的性能对比。
+历史代码检查、指标优化、三框架和六框架采样统一保存在 [历史报告索引](docs/archive/README.md)；核心微基准的方法见 [基准说明](docs/BENCHMARKS.md)。各批次分别保留来源、样本和未通过结果，不混用数字。
 
-在自己的机器上复测并生成图表：
+在自己的机器上复测时，将新数据与图表写入独立目录：
 
 ```powershell
 python -m pip install -e ".[benchmark]"
-python -m benchmarks.run
-python -m benchmarks.plot
+python -B -m benchmarks.run --output .build-cache/benchmarks/local.json
+python -B -m benchmarks.plot --input .build-cache/benchmarks/local.json --output .build-cache/benchmarks/plots
 ```
 
-测量脚本只使用标准库与项目核心；`benchmark` 可选依赖仅用于绘图。默认写入 [原始结果](benchmarks/results/local.json) 和 `docs/assets/performance/`，会覆盖同名文件。可以用 `--output` 指定其他路径，更多参数见 [复测说明](docs/BENCHMARKS.md#如何复测)。
+测量脚本使用标准库与项目核心，绘图使用可选依赖；更多工作负载和复测命令见 [基准工具导航](benchmarks/README.md)。
 
 ## 学习与开发
 
@@ -172,15 +172,19 @@ python -m benchmarks.plot
 | 理解 QQ 接入与协议边界 | [QQ 官 Bot 接入设计](docs/QQOFFICIAL_DESIGN.md) |
 | 首次配置、screen、更新与回滚 | [服务器部署文档](docs/DEPLOYMENT.md) |
 | 理解性能测试及其限制 | [基准说明](docs/BENCHMARKS.md) |
-| 了解 dsh 架构研究与设计启发 | [架构分析](DSH_ARCHITECTURE_STUDY.md) |
+| 配置共享预算、同步接纳与公平调度 | [弹性调度说明](docs/ELASTIC_SCHEDULING.md) |
+| 查看正常负载、高负载与稳定性验收 | [弹性调度性能报告](docs/PERFORMANCE_ELASTIC.md) |
+| 查看指标/调度优化与前后验收 | [性能优化报告](docs/archive/PERFORMANCE_OPTIMIZATION.md) |
+| 查看整体检查、引用释放与接纳优化 | [代码检查记录](docs/archive/CODE_AUDIT.md) |
+| 了解 dsh 架构研究与设计启发 | [架构分析](docs/design/DSH_ARCHITECTURE_STUDY.md) |
 
 目录按职责组织：`hooks/` 编写业务，`adapters/` 接收事件，`clients/` 执行平台动作，`core/` 提供平台无关的运行机制；`application.py` 负责将它们组装起来。`deployment/` 管理环境和应用进程，`shared/` 保存标准库路径约定。核心的大模块内部按 `core/dispatch/` 与 `core/runtime/` 分工，原有 `from core import ...` 入口保持可用。
 
 ### 运行测试
 
 ```powershell
-# 安装 QQ 可选依赖，以运行完整协议测试
-python -m pip install -e ".[qqofficial]"
+# 安装完整测试使用的服务器依赖
+python -m pip install --require-hashes --only-binary=:all: -r requirements-server.lock
 python -m unittest discover -s tests -t . -q
 ```
 
@@ -192,6 +196,6 @@ python -m unittest discover -s tests -t . -q
 
 ## 开源许可
 
-Tiffany 使用 [MIT 许可证（简体中文）](LICENSE)，并提供 [英文参考译文](LICENSE.en)。允许商用、修改和再分发，分发时保留版权与许可声明；软件按原样提供，不附带担保。**本项目以中文许可文本为准；如中英文存在歧义，以中文版为准。** 第三方依赖遵循各自的许可。
+Tiffany 使用单份标准英文 [MIT License](LICENSE)。允许商用、修改和再分发，分发时保留版权与许可声明；软件按原样提供，不附带担保。第三方依赖遵循各自的许可。
 
 许可条款对应 [SPDX 收录的 MIT 条款](https://spdx.org/licenses/MIT.html)。

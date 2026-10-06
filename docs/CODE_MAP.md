@@ -11,7 +11,7 @@ Tiffany/
 ├── main.py                 # 启动程序
 ├── application.py          # 组装 Bot、业务和适配器
 ├── settings.py             # 读取和校验配置
-├── Tiffany.toml            # 旧配置，服务器通过 configure --import-config 显式导入
+├── LICENSE                 # 唯一项目许可证，标准英文 MIT
 ├── fields.py               # 应用和协议共用的 Field 实例
 ├── hooks/                  # 业务功能与派生字段
 ├── adapters/               # 外部事件接入
@@ -21,22 +21,26 @@ Tiffany/
 │   └── runtime/            # 启动、关闭、组件调用、Scope 资源的内部实现
 ├── shared/                 # 只依赖标准库的跨层路径约定
 ├── deployment/             # 环境准备、配置向导和进程监督
-├── examples/               # 配置与独立应用示例
+├── examples/               # 配置与独立应用示例；legacy/ 保存旧配置
 ├── data/                   # 首次启动生成，更新包排除
 ├── tests/                  # 单元、集成测试与测试辅助对象
 ├── benchmarks/             # 可复现的性能采样、原始结果与绘图脚本
-└── docs/                   # 源码地图和学习路线
+└── docs/                   # README 导航、现行说明、design/、planning/、archive/
 ```
 
 | 分类 | 文件 | 职责与阅读入口 |
 | --- | --- | --- |
 | 启动 | [main.py](../main.py) | 调用 `TiffanyApplication.run()` |
 | 组合 | [application.py](../application.py) | `_create_bot()` 注册业务；`_run()` 加载配置、安装适配器、运行 Bot |
-| 配置 | [settings.py](../settings.py)、[部署模块](../deployment/) | `load_config()` 默认解析 data/config/Tiffany.toml；凭据读取由独立解析器完成 |
+| 配置 | [settings.py](../settings.py)、[部署模块](../deployment) | `load_config()` 默认解析 data/config/Tiffany.toml；凭据读取由独立解析器完成 |
 | 服务器 | [launcher.py](../launcher.py)、[start.sh](../start.sh)、[start.bat](../start.bat)、[start.ps1](../start.ps1) | 首次向导、环境隔离、进程锁、信号和重启监督；操作见 [部署说明](DEPLOYMENT.md) |
 | 字段约定 | [fields.py](../fields.py) | 集中定义 `TEXT`、`USER_ID` 等共享字段键，供协议 Provider 和业务一起使用 |
 | 构建与依赖 | [pyproject.toml](../pyproject.toml)、[requirements.txt](../requirements.txt) | Python 版本、打包模块、MIT 许可元数据、基础与可选依赖 |
 | 性能采样 | [run.py](../benchmarks/run.py)、[plot.py](../benchmarks/plot.py) | 分发与字段读取微基准；方法和结果见 [基准说明](BENCHMARKS.md) |
+| 框架多维测量 | [协调器](../benchmarks/representative/run.py)、[源码边界](../benchmarks/representative/sources.py)、[场景](../benchmarks/representative/cases.py)、[HTTP 服务](../benchmarks/representative/server.py) | 保存生产源码快照并核验实际导入路径；独立进程采样、原生输入、共享高精度 I/O 延迟与突发场景 |
+| 框架原生接入 | [Python 接入](../benchmarks/representative/engines.py)、[Python worker](../benchmarks/representative/worker.py)、[Koishi worker](../benchmarks/representative/koishi.cjs) | 保留原生解析和调度，核验处理/规则/字符/HTTP/指标计数 |
+| 框架结果交付 | [校验](../benchmarks/representative/validate.py)、[展示条件](../benchmarks/representative/presentation.py)、[绘图](../benchmarks/representative/plot.py)、[报告](../benchmarks/representative/report.py) | 图表与数值表共用场景定义，六幅卡片式图表覆盖比较维度，保留单位、范围和图注；方法见 [离线消息处理基准](FRAMEWORK_COMPARISON_REPRESENTATIVE.md) |
+| 历史框架对比 | [compare_expanded.py](../benchmarks/compare_expanded.py)、[expanded_engines.py](../benchmarks/expanded_engines.py)、[Koishi worker](../benchmarks/koishi_worker.cjs)、[绘图](../benchmarks/plot_expanded.py) | 保留六框架原生路径与此前采样；方法见 [六框架报告](archive/FRAMEWORK_COMPARISON_EXPANDED.md) |
 
 组合发生在应用层。业务 Hook 使用 `core` 和共享字段，Adapter 负责协议转换，Client 负责协议动作；`core` 不导入 `hooks`、`adapters`、`clients` 或 `deployment`。`shared` 只依赖标准库，核心和部署都可以使用它。启动器不导入 `core` 或第三方包，能在应用环境安装前运行；这个边界由 [分层隔离测试](../tests/unit/core/test_layering.py) 验证。
 
@@ -99,11 +103,14 @@ Provider 接收的是受限的 `ProviderContext` 视图，适合读取原始数�
 | 文件 | 负责什么 | 先看哪些方法 | 对应测试 |
 | --- | --- | --- | --- |
 | [Runtime.py](../core/Runtime.py) | 保存运行状态，协调事件快照、监督任务和生命周期实现 | `emit`、`_dispatch`、`wait_closed`、`failure_cause`、`startup_failed` | [生命周期](../tests/integration/core/test_lifecycle.py)、[服务器边界](../tests/integration/core/test_server_regressions.py) |
-| [EventScheduler.py](../core/EventScheduler.py) | 有界事件接纳、并发限制、会话队列与公平调度 | `submit`、`_run`、`_execute`、`drain`、`abort` | [调度](../tests/integration/core/test_scheduler.py) |
+| [EventScheduler.py](../core/EventScheduler.py) | 有界事件接纳、并发限制、会话队列与公平调度 | `submit`、`_pump`、`_execute`、`_finish_work`、`drain`、`abort` | [调度](../tests/integration/core/test_scheduler.py)、[取消与故障边界](../tests/integration/core/test_scheduler_regressions.py) |
+| [SchedulerPolicy.py](../core/SchedulerPolicy.py)、[shared/scheduler.py](../shared/scheduler.py) | 核心和部署共用的共享预算策略 | `Bot(scheduler=...)`、TOML `[scheduler]` | [弹性预算与突发](../tests/integration/core/test_elastic_scheduler.py)、[配置往返](../tests/unit/qqofficial/test_config.py) |
 | [TaskRegistry.py](../core/TaskRegistry.py) | 监督任务、记录失败并按 owner 等待或取消 | `spawn`、`_done`、`wait_owner`、`cancel_owner`、`close` | [生命周期](../tests/integration/core/test_lifecycle.py)、[Scope](../tests/integration/core/test_scope.py) |
 | [Lifecycle.py](../core/Lifecycle.py) | 定义运行状态、生命周期契约和清理报告 | `RuntimeState`、`ShutdownReport`、相关异常 | [生命周期](../tests/integration/core/test_lifecycle.py) |
 
 `Runtime` 决定“现在能否运行、谁拥有资源、怎样关闭”；`EventScheduler` 决定“哪条事件现在执行”；`Dispatcher` 决定“这条事件执行哪些 Hook”。后台任务通过 `runtime.tasks.spawn(..., owner=...)` 交给 `TaskRegistry` 监督。
+
+Scheduler 在接纳、完成、排队取消或并发调整时同步调用 `_pump()`，所有事件先进入会话队列，再按 ready 队列轮转派发。业务仍在各自的 Task 中运行，每次复制启动时的上下文；`_Work.state` 和 `_finish_work()` 保证完成清理只发生一次，完成回调补上 Task 尚未启动就取消的清理。拒绝取消的工作继续占用活动计数并保留 owner 引用；派发内部故障进入 Runtime 的首故障与 abort 路径。
 
 | 内部文件 | 职责 | 阅读入口 |
 | --- | --- | --- |
@@ -118,11 +125,13 @@ Provider 接收的是受限的 `ProviderContext` 视图，适合读取原始数�
 
 | 文件 | 负责什么 | 使用入口 | 对应测试 |
 | --- | --- | --- | --- |
-| [Metrics.py](../core/Metrics.py) | 保存有容量上限的指标序列，提供不可变快照 | `bot.metrics`、`inc`、`observe`、`snapshot` | [指标导出](../tests/unit/core/test_openmetrics_exporter.py)、[调度](../tests/integration/core/test_scheduler.py) |
+| [Metrics.py](../core/Metrics.py) | 保存有容量上限的指标序列，提供不可变快照与内部绑定/批量写入 | `bot.metrics`、`inc`、`observe`、`snapshot`；内部 `_bind`、`_batch` | [指标绑定与并发](../tests/unit/core/test_metrics.py)、[指标导出](../tests/unit/core/test_openmetrics_exporter.py)、[调度](../tests/integration/core/test_scheduler.py) |
 | [Trace.py](../core/Trace.py) | 有界记录 Hook 的执行结果、采样和时长 | `bot.dispatcher.trace.enable()`、`snapshot()` | [追踪](../tests/integration/core/test_trace.py) |
 | [OpenMetrics.py](../core/OpenMetrics.py) | 指标与应用提供的健康回调，支持 HTTP 导出 | `OpenMetricsExporter`；独立使用需安装可选依赖并启用 | [隔离依赖](../tests/unit/core/test_openmetrics_exporter.py)、[真实 HTTP/健康](../tests/integration/deployment/test_health.py) |
 
 Trace 默认关闭，记录执行元数据，不保留原始消息。单独创建 `Bot()` 不安装 OpenMetrics；服务器的 `application.py` 会注册该服务，配置默认启用并监听 `127.0.0.1:9464`，提供 `/metrics`、`/livez`、`/readyz`。就绪回调检查 Runtime、Adapter 连接及事件接纳状态。
+
+指标逐事件更新。Registry 内有界 LRU 只保存名称和标签等元数据，首次绑定不创建零值序列，绑定数量按指标键计不超过 `max_series`。同一调度转换中的全局与 Adapter 指标、Hook 结果与耗时、事件耗时分别在一次写入锁内提交，快照使用同一锁；缓存驱逐不影响已导出的序列，替换 Registry 后重新绑定。完整前后实测入口为 [benchmarks/optimize.py](../benchmarks/optimize.py)，结果与测量范围见 [性能优化报告](archive/PERFORMANCE_OPTIMIZATION.md)。
 
 ## 3. 协议接入、动作调用和业务
 
@@ -173,10 +182,10 @@ flowchart TD
     Decode --> Echo{Client.handle_response 消费了帧?}
     Echo -->|是| Pending[pending Future 完成或记录孤立响应]
     Echo -->|否| Envelope[构造 Envelope]
-    Envelope --> Emit[Runtime.emit 校验并捕获注册快照]
-    Emit --> Admission{Scheduler.submit 容量允许?}
+    Envelope --> Emit[Runtime.submit 同步校验]
+    Emit --> Admission{Scheduler.submit 共享预算允许?}
     Admission -->|否| Reject[拒绝或丢弃新事件]
-    Admission -->|是| Lane[按会话排队并调度]
+    Admission -->|是| Lane[捕获快照与 owner · 按会话排队并调度]
     Lane --> Dispatch[Runtime._dispatch 创建 Context]
     Dispatch --> Route[Dispatcher.dispatch 匹配并按优先级执行]
     Route --> Handler[when 通过后调用 Hook handler]
@@ -198,6 +207,8 @@ flowchart TD
 整体关闭：`Bot.stop → runtime/shutdown.py`。停止接纳后，drain 等待已接纳事件与适配器工作；无法在时限内收敛时升级为 abort。随后清理适配器、退出 lifespan、停止服务、teardown 已 setup 的组件，并关闭框架拥有的任务。`wait_closed()` 在关闭或启动回滚完成后返回报告；首个关键后台故障保存在 `failure_cause`，`Bot.run_async()` 会向调用者传播它。
 
 扩展卸载：`Scope.unload → Bot.unload → runtime/owners.py`。先检查其他 owner 的依赖，再禁用 Hook 并阻止新注册。drain 对相关事件和任务共用 30 秒等待预算；abort 直接取消这些工作。取消不收敛时保留资源并抛出清理失败，允许稍后重试。工作结束后另用有界预算清理组件、撤销注册；它不会等待无关事件。
+
+归属判断以注册句柄的最终 owner 为准。移除后注册表释放 Hook 句柄，外部持有的句柄和在途快照仍有效。平台校验缓存最多保存 256 条，淘汰后按原规则重校验。原 OneBot 提交 Task 和签名反射已由同步 `Runtime.submit` 取代；Adapter drain 按需等待自己的 Scheduler 在途计数。共享预算、保留额度与轮转队列见 [弹性调度说明](ELASTIC_SCHEDULING.md)。
 
 ### 服务器启动链路与部署模块
 

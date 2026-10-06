@@ -13,6 +13,7 @@ from .models import HookExecutionError, HookRegistration, HookTimeoutError
 
 # Preserve the public entry point's logger for operators and existing filters.
 logger = logging.getLogger("core.Dispatcher")
+_HOOK_METRICS = ("hook_executions_total", "hook_duration_seconds_count", "hook_duration_seconds_sum")
 
 
 class HookExecutor:
@@ -167,8 +168,8 @@ class HookExecutor:
             "hook": hook.name,
             "reason": result,
         }
-        self.metrics.inc("hook_executions_total", labels=labels)
-        self.metrics.observe("hook_duration_seconds", duration, labels=labels)
+        bound = self.metrics._bind(_HOOK_METRICS, labels)
+        self.metrics._batch((("inc", bound, (1.0, 1.0, duration)),))
         if not self.trace.enabled:
             return
         self._record_trace(

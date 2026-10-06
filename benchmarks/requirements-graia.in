@@ -1,0 +1,4 @@
+# Ariadne uses Pydantic v1 / an older Launart: isolate from the v2 frameworks.
+graia-ariadne==0.11.7
+psutil==7.1.3
+aiohttp==3.14.3

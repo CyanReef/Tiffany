@@ -48,7 +48,7 @@ class ApplicationProcessTests(unittest.TestCase):
                 "  self.runtime.tasks.spawn(fail(),name='critical',owner=self)",
                 "bot=Bot()",
                 "bot.service(ServiceKey('tasks'),Tasks())",
-                "TiffanyApplication._create_bot=lambda:bot",
+                "TiffanyApplication._create_bot=lambda scheduler=None:bot",
                 f"paths=RuntimePaths.resolve({temporary!r})",
                 "paths.initialize()",
                 f"config=parse_config({onebot_config()!r})",

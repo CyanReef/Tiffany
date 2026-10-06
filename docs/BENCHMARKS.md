@@ -2,6 +2,14 @@
 
 这份文档说明 [README](../README.md) 中图表的测量方法、实测结果与适用范围。数据来自实际执行，不使用推算值或其他框架的假定数据。
 
+共享预算与按需调度的最新结果见 [弹性调度性能验收](PERFORMANCE_ELASTIC.md)：实施前工作区源码作为基线，正常负载交替测量 15 轮，并比较 HTTP 闭环、固定到达、突发排空和 30 分钟稳定性。报告附源码 ZIP、逐文件指纹、原始数据与复测命令。当前最终源码尚未通过全部性能门槛，失败和不确定结果均保留。
+
+2026-10-06 的 [四框架离线消息处理基准](FRAMEWORK_COMPARISON_REPRESENTATIVE.md) 使用更新后的 Tiffany 源码，比较 Tiffany、NoneBot、AstrBot、Koishi，覆盖消息处理、规则和消息规模、1～64 个闭环生产者的 HTTP I/O、当前默认突发接纳与完成，以及进程初始化、采样峰值内存和配置读取路径。六幅图沿用卡片布局和指标方向提示，每个比较维度都有对应数值表。每个框架有五次进程重复测量，误差线和阴影为最小–最大范围，不是置信区间；导出 300 dpi PNG 和矢量 SVG，并保留本轮源码快照及上一轮结果。
+
+[此前六框架对比](archive/FRAMEWORK_COMPARISON_EXPANDED.md) 包含 Graia Ariadne、Entari 等更广的候选范围，[此前三框架对比](archive/FRAMEWORK_COMPARISON.md) 另行保留。它们采用不同工作负载和样本，应与本文的历史核心微基准分别阅读。
+
+2026-10-04 的 [功能不减性能优化报告](archive/PERFORMANCE_OPTIMIZATION.md) 使用当轮前后源码快照，保留真实指标、独立事件 Task 和原并发限制，执行 7 轮完整 `Bot.emit()` 前后对照。2026-10-05 的 [代码检查记录](archive/CODE_AUDIT.md) 另测 OneBot 接纳优化并检查引用释放和缓存容量。本文保留 9 月 30 日的历史微基准，不随后续实现改写旧数据。
+
 ## 测试环境
 
 | 项目 | 本次环境 |
@@ -16,7 +24,7 @@
 | 样本 | 每种场景 7 轮；分发每轮 3,000 个事件；字段每轮 50,000 个 Context |
 | 预热 | 每个场景、每轮先执行 200 次，不计入测量 |
 
-测试时包含尚未提交的源码改动，Git HEAD 不能独立标识被测版本。[原始 JSON](../benchmarks/results/local.json) 记录 HEAD、工作区状态及 `core/*.py` 和测量脚本内容的合并 SHA-256，便于识别不同版本。
+测试时包含尚未提交的源码改动，Git HEAD 不能独立标识被测版本。[原始 JSON](../benchmarks/results/archive/micro/local.json) 记录 HEAD、工作区状态及 `core/*.py` 和测量脚本内容的合并 SHA-256，便于识别不同版本。
 
 这是普通开发机器上的一次采样，未设置 CPU 亲和性或锁定频率，也没有隔离系统后台负载。结果保留波动范围，便于判断量级。
 
@@ -101,7 +109,7 @@ python -m pip install -e ".[benchmark]"
 python -m benchmarks.plot
 ```
 
-默认会覆盖仓库里的 `benchmarks/results/local.json` 和 `docs/assets/performance/`。需要保留已有结果时，指定输出位置：
+默认会覆盖仓库里的 `benchmarks/results/archive/micro/local.json` 和 `docs/assets/performance/`。需要保留已有结果时，指定输出位置：
 
 绘图默认生成简体中文与英文两个版本。中文绘图需要系统安装微软雅黑、思源黑体、Noto Sans CJK SC 等中文字体；已有 PNG / SVG 可直接查看。只生成英文时使用 `python -m benchmarks.plot --language en`，只生成中文时使用 `--language zh-CN`。
 
@@ -116,8 +124,8 @@ python -m benchmarks.plot --input .venv/benchmark-results/mine.json --output .ve
 | `--contexts` | 50,000 | 每轮每种字段场景的 Context 数 |
 | `--warmup` | 200 | 每轮每种场景的预热次数 |
 | `--repeats` | 7 | 重复轮数 |
-| `run --output` | `benchmarks/results/local.json` | 原始采样与汇总结果 |
-| `plot --input` | `benchmarks/results/local.json` | 绘图数据来源 |
+| `run --output` | `benchmarks/results/archive/micro/local.json` | 原始采样与汇总结果 |
+| `plot --input` | `benchmarks/results/archive/micro/local.json` | 绘图数据来源 |
 | `plot --output` | `docs/assets/performance/` | PNG / SVG 保存目录 |
 
 测量代码见 [run.py](../benchmarks/run.py)，绘图代码见 [plot.py](../benchmarks/plot.py)。图表不会再次执行基准，而是读取已经保存的 JSON。修改代码后请重新采样；发布新的图表时，同时更新原始结果和本文的环境、数值说明。

@@ -30,7 +30,6 @@ def create_adapter(
             port=config.websocket.port,
             platform=config.platform,
             workers=config.websocket.workers,
-            queue_size=config.websocket.queue_size,
             call_timeout=config.websocket.call_timeout,
             pending_limit=config.websocket.pending_limit,
             token=config.websocket.get_token(config.platform, credential_resolver),
@@ -46,7 +45,7 @@ def create_adapter(
 
         return QQOfficialWebSocketAdapter(
             qqofficial.app_id, secret, config.platform,
-            sandbox=qqofficial.sandbox, workers=qqofficial.workers,
+            sandbox=qqofficial.sandbox, workers=qqofficial.workers, max_inflight=qqofficial.max_inflight,
             call_timeout=qqofficial.call_timeout,
         )
 

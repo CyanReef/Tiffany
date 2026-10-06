@@ -4,7 +4,7 @@ import asyncio
 import unittest
 from contextlib import asynccontextmanager
 
-from core import Bot, Envelope, Field, OwnerInUseError, ServiceKey
+from core import Bot, Envelope, Field, Hook, OwnerInUseError, ServiceKey
 
 
 class Service:
@@ -25,6 +25,32 @@ class Service:
 
 
 class ScopeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_registered_owner_override_blocks_external_dependency_unload(self):
+        bot = Bot()
+        scope = bot.scope("provider")
+        field = Field("owned")
+        provider = scope.provide(field, lambda ctx: "value")
+        handle = bot.dispatcher.add(
+            Hook("consumer", _noop, needs=(field,), owner=scope.owner),
+            owner="external-consumer",
+        )
+        with self.assertRaises(OwnerInUseError):
+            await scope.unload()
+        self.assertTrue(provider.active)
+        self.assertTrue(handle.active)
+
+    async def test_registered_owner_override_does_not_block_its_own_unload(self):
+        bot = Bot()
+        scope = bot.scope("provider")
+        field = Field("owned")
+        provider = scope.provide(field, lambda ctx: "value")
+        handle = bot.dispatcher.add(
+            Hook("consumer", _noop, needs=(field,)), owner=scope.owner,
+        )
+        await scope.unload()
+        self.assertFalse(provider.active)
+        self.assertTrue(handle.removed)
+
     async def test_hook_uses_is_validated_when_registered(self):
         bot = Bot()
         missing = ServiceKey("missing")

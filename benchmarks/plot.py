@@ -130,7 +130,7 @@ def render(data, output: Path, language: str):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, default=ROOT / "benchmarks/results/local.json")
+    parser.add_argument("--input", type=Path, default=ROOT / "benchmarks/results/archive/micro/local.json")
     parser.add_argument("--output", type=Path, default=ROOT / "docs/assets/performance")
     parser.add_argument("--language", choices=("all", "en", "zh-CN"), default="all")
     args = parser.parse_args()

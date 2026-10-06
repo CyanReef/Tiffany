@@ -51,6 +51,12 @@ class ReleaseTests(unittest.TestCase):
                 self.assertIn("Tiffany/deployment/launcher.py", archive.namelist())
                 self.assertIn("Tiffany/start.bat", archive.namelist())
                 self.assertIn("Tiffany/start.ps1", archive.namelist())
+                self.assertIn("Tiffany/LICENSE", archive.namelist())
+                self.assertNotIn("Tiffany/LICENSE.en", archive.namelist())
+                self.assertEqual(
+                    archive.read("Tiffany/LICENSE"),
+                    (PROJECT_ROOT / "LICENSE").read_bytes(),
+                )
                 archive.extractall(temporary)
             # Import and run the shipped code from another directory, so the
             # source checkout cannot conceal missing implementation packages.

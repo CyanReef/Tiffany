@@ -115,7 +115,7 @@ def environment():
         except OSError:
             pass
     # Record the measured files even when the working tree has uncommitted work.
-    sources = sorted((ROOT / "core").glob("*.py")) + [Path(__file__).resolve()]
+    sources = sorted((ROOT / "core").rglob("*.py")) + [Path(__file__).resolve()]
     digest = hashlib.sha256()
     for source in sources:
         digest.update(source.relative_to(ROOT).as_posix().encode())
@@ -218,7 +218,7 @@ def main():
     parser.add_argument("--contexts", type=positive_int, default=50000)
     parser.add_argument("--warmup", type=positive_int, default=200)
     parser.add_argument("--repeats", type=positive_int, default=7)
-    parser.add_argument("--output", type=Path, default=ROOT / "benchmarks/results/local.json")
+    parser.add_argument("--output", type=Path, default=ROOT / "benchmarks/results/archive/micro/local.json")
     asyncio.run(run(parser.parse_args()), debug=False)
 
 

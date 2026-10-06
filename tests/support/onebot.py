@@ -73,8 +73,6 @@ class FakeRuntime:
         self.emit_result = object()
         self.emit_gate: asyncio.Event | None = None
 
-    async def emit_from_adapter(self, envelope, *, adapter_id, reject):
+    def submit(self, envelope, *, reject=False):
         self.envelopes.append(envelope)
-        if self.emit_gate is not None:
-            await self.emit_gate.wait()
         return self.emit_result

@@ -10,6 +10,7 @@ import tomllib
 from collections.abc import Callable
 
 from deployment.paths import PROJECT_ROOT, RuntimePaths
+from shared.scheduler import SchedulerPolicy
 
 CredentialResolver = Callable[[str, str], str | None]
 
@@ -43,8 +44,7 @@ def _string(value, name):
 class WebSocketConfig:
     host: str = "127.0.0.1"
     port: int = 6199
-    workers: int = 4
-    queue_size: int = 256
+    workers: int | None = None
     call_timeout: float = 30.0
     pending_limit: int = 256
     token_env: str = "TIFFANY_ONEBOT_TOKEN"
@@ -53,8 +53,8 @@ class WebSocketConfig:
         _string(self.host, "adapter.websocket.host")
         _string(self.token_env, "adapter.websocket.token_env")
         _integer(self.port, "adapter.websocket.port", 0, 65535)
-        _integer(self.workers, "adapter.websocket.workers", 1, 4)
-        _integer(self.queue_size, "adapter.websocket.queue_size", 1, 256)
+        if self.workers is not None:
+            _integer(self.workers, "adapter.websocket.workers", 1, 65536)
         _integer(self.pending_limit, "adapter.websocket.pending_limit", 1, 65536)
         _positive(self.call_timeout, "adapter.websocket.call_timeout")
 
@@ -70,7 +70,8 @@ class QQOfficialConfig:
     app_id: str
     app_secret_env: str = "TIFFANY_QQBOT_SECRET"
     sandbox: bool = False
-    workers: int = 4
+    workers: int | None = None
+    max_inflight: int = 16
     call_timeout: float = 30.0
 
     def __post_init__(self):
@@ -78,7 +79,9 @@ class QQOfficialConfig:
         _string(self.app_secret_env, "adapter.qqofficial.app_secret_env")
         if type(self.sandbox) is not bool:
             raise ValueError("adapter.qqofficial.sandbox must be a boolean")
-        _integer(self.workers, "adapter.qqofficial.workers", 1, 4)
+        if self.workers is not None:
+            _integer(self.workers, "adapter.qqofficial.workers", 1, 65536)
+        _integer(self.max_inflight, "adapter.qqofficial.max_inflight", 1, 65536)
         _positive(self.call_timeout, "adapter.qqofficial.call_timeout")
 
     def get_app_secret(self, resolver: CredentialResolver | None = None) -> str:
@@ -163,6 +166,7 @@ class AppConfig:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     monitoring: MonitoringConfig = field(default_factory=MonitoringConfig)
     restart: RestartConfig = field(default_factory=RestartConfig)
+    scheduler: SchedulerPolicy = field(default_factory=SchedulerPolicy)
 
     def validate_credentials(self, resolver: CredentialResolver | None = None) -> tuple[str, ...]:
         if self.adapter.type == "qqofficial_websocket":
@@ -192,6 +196,7 @@ def parse_config(data: dict) -> AppConfig:
             logging=LoggingConfig(**data.get("logging", {})),
             monitoring=MonitoringConfig(**data.get("monitoring", {})),
             restart=RestartConfig(**data.get("restart", {})),
+            scheduler=SchedulerPolicy(**data.get("scheduler", {})),
         )
     except (KeyError, TypeError) as error:
         raise ValueError(f"invalid configuration structure ({type(error).__name__})") from None

@@ -24,7 +24,7 @@ class HookRegistry:
         self._dispatcher = dispatcher
         self._snapshot = HookSnapshot(0, (), frozenset(), frozenset())
         self._next_id = 1
-        # Keep handles queryable after removal for idempotent control methods.
+        # Removed handles remain usable by callers without being retained here.
         self._handles: dict[int, HookHandle] = {}
         self._known_kinds: frozenset[str] = frozenset()
         self._known_platforms: frozenset[str] = frozenset()
@@ -145,12 +145,13 @@ class HookRegistry:
     ) -> tuple[HookHandle, ...]:
         """Query live handles in effective execution order."""
 
-        return tuple(
-            self._handles[registration.id]
-            for registration in self._snapshot.registrations
-            if (source is _UNSET or registration.source == source)
-            and (owner is _UNSET or same_owner(registration.owner, owner))
-        )
+        with self._lock:
+            return tuple(
+                self._handles[registration.id]
+                for registration in self._snapshot.registrations
+                if (source is _UNSET or registration.source == source)
+                and (owner is _UNSET or same_owner(registration.owner, owner))
+            )
 
     def handles(self) -> tuple[HookHandle, ...]:
         return self.registrations()
@@ -223,6 +224,8 @@ class HookRegistry:
         removed = len(current) - len(updated)
         if not removed:
             return 0
+        for registration_id in registration_ids:
+            self._handles.pop(registration_id, None)
         self._publish(updated)
         return removed
 

@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import random
+import sys
 import time
 from collections import OrderedDict
 from typing import Any, Literal
@@ -40,19 +41,20 @@ class QQOfficialWebSocketAdapter:
 
     def __init__(
         self, app_id: str, app_secret: str, platform: str = "qq_official", *,
-        sandbox: bool = False, workers: int = 4, call_timeout: float = 30.0,
+        sandbox: bool = False, workers: int | None = None, call_timeout: float = 30.0,
+        max_inflight: int = 16,
         adapter_id: str | None = None, client: QQOfficialClient | None = None,
         dedup_limit: int = 4096, dedup_ttl: float = 3600.0,
     ):
         if not isinstance(platform, str) or not platform:
             raise ValueError("platform must be a non-empty string")
-        if type(workers) is not int or not 1 <= workers <= 4:
-            raise ValueError("QQ adapter workers must be between 1 and 4")
+        if workers is not None and (type(workers) is not int or workers < 1):
+            raise ValueError("QQ adapter workers must be a positive integer or None")
         if (type(dedup_limit) is not int or dedup_limit < 1
                 or not math.isfinite(dedup_ttl) or dedup_ttl <= 0):
             raise ValueError("dedup_limit and dedup_ttl must be positive")
         self.client = client or QQOfficialClient(
-            app_id, app_secret, sandbox=sandbox, call_timeout=call_timeout,
+            app_id, app_secret, sandbox=sandbox, call_timeout=call_timeout, max_inflight=max_inflight,
         )
         if self.client.app_id != app_id:
             raise ValueError("adapter and client must use the same app_id")
@@ -123,6 +125,10 @@ class QQOfficialWebSocketAdapter:
             raise ValueError("stop mode must be 'drain' or 'abort'")
         self._stop.set()
         self._connected = False
+        if mode == "drain" and self.runtime is not None:
+            # Preserve the HTTP client for accepted hooks, including queued
+            # work, when stopping this adapter independently of Runtime.
+            await self.runtime.scheduler.wait_adapter_idle(self.adapter_id)
         if self._ws is not None:
             await self._ws.close(code=1000, reason="Tiffany stopping")
         runner = self._runner
@@ -236,12 +242,17 @@ class QQOfficialWebSocketAdapter:
                 )
                 deadline = asyncio.get_running_loop().time() + self.HANDSHAKE_TIMEOUT
                 authorized = False
+                frames = 0
                 while not self._stop.is_set():
                     if authorized:
                         frame = await ws.recv()
                     else:
                         async with asyncio.timeout_at(deadline):
                             frame = await ws.recv()
+                    frames += 1
+                    if frames == 64:
+                        frames = 0
+                        await asyncio.sleep(0)
                     try:
                         raw = self._decode(frame)
                     except ValueError:
@@ -249,7 +260,7 @@ class QQOfficialWebSocketAdapter:
                         continue
                     if not authorized and self._session_id is None and raw.get("op") == 0 and raw.get("t") != "READY":
                         raise QQOfficialGatewayError("QQ dispatched an event before READY")
-                    await self._handle(raw, ws)
+                    await self._handle(raw, ws, admission_bytes=2048 + 12 * sys.getsizeof(frame))
                     if raw.get("op") == 0 and raw.get("t") in ("READY", "RESUMED"):
                         authorized = True
             finally:
@@ -293,7 +304,7 @@ class QQOfficialWebSocketAdapter:
             if self._ws is ws and not self._stop.is_set():
                 raise
 
-    async def _handle(self, raw: dict[str, Any], ws: Any) -> None:
+    async def _handle(self, raw: dict[str, Any], ws: Any, *, admission_bytes: int | None = None) -> None:
         sequence = raw.get("s")
         if type(sequence) is int:
             self._received_seq = sequence
@@ -334,7 +345,7 @@ class QQOfficialWebSocketAdapter:
                 self._connected = True
                 logger.info("QQ official session resumed (adapter=%s)", self.adapter_id)
             else:
-                await self._admit(raw)
+                await self._admit(raw, admission_bytes=admission_bytes)
 
     def _message_key(self, raw: dict[str, Any]) -> tuple[str, str, str] | None:
         scene = MESSAGE_EVENTS.get(raw.get("t"))
@@ -351,7 +362,7 @@ class QQOfficialWebSocketAdapter:
             return scene, target, message_id
         return None
 
-    async def _admit(self, raw: dict[str, Any]) -> None:
+    async def _admit(self, raw: dict[str, Any], *, admission_bytes: int | None = None) -> None:
         if self._stop.is_set() or self.runtime.state != RuntimeState.RUNNING:
             raise _Reconnect()
         key = self._message_key(raw)
@@ -370,10 +381,10 @@ class QQOfficialWebSocketAdapter:
             self.platform, raw, client=self.client, kind=detect_event_kind(raw),
             adapter_id=self.adapter_id, connection_id=f"{self.adapter_id}:{self._generation}",
             session_id=f"{self.app_id}:{scene}:{target}" if key is not None else None,
-            **metadata,
+            admission_bytes=admission_bytes, **metadata,
         )
         try:
-            admitted = await self.runtime.emit(envelope, reject=False, wait=False)
+            admitted = self.runtime.submit(envelope, reject=False)
         except RuntimeNotRunningError:
             raise _Reconnect() from None
         if admitted is None:

@@ -6,6 +6,8 @@ import json
 import logging
 import hmac
 import math
+import sys
+from time import monotonic
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -15,8 +17,7 @@ from clients import OneBotWebSocketClient, create_client
 from core import Envelope
 from settings import is_loopback
 
-from .onebot_fields import detect_event_kind
-from .onebot_fields import register_onebot_fields
+from .onebot_fields import detect_event_kind, register_onebot_fields
 
 
 logger = logging.getLogger(__name__)
@@ -33,8 +34,7 @@ class OneBotWebSocketAdapter:
         platform: str,
         *,
         adapter_id: str | None = None,
-        workers: int = 4,
-        queue_size: int = 256,
+        workers: int | None = None,
         call_timeout: float = 30.0,
         pending_limit: int = 256,
         token: str | None = None,
@@ -43,12 +43,8 @@ class OneBotWebSocketAdapter:
             platform, str
         ):
             raise TypeError("host, port, and platform have invalid types")
-        if type(workers) is not int or type(queue_size) is not int or workers < 1 or queue_size < 1:
-            raise ValueError("workers and queue_size must be at least 1")
-        if workers > 4:
-            raise ValueError("OneBot adapter workers cannot exceed the P0 limit of 4")
-        if queue_size > 256:
-            raise ValueError("OneBot adapter queue_size cannot exceed 256")
+        if workers is not None and (type(workers) is not int or workers < 1):
+            raise ValueError("workers must be a positive integer or None")
         if (type(call_timeout) not in (float, int) or not math.isfinite(call_timeout)
                 or call_timeout <= 0 or type(pending_limit) is not int or pending_limit < 1):
             raise ValueError("call_timeout must be positive and pending_limit at least 1")
@@ -62,7 +58,6 @@ class OneBotWebSocketAdapter:
         self.platform = platform
         self.adapter_id = adapter_id or f"onebot_websocket:{platform}"
         self.workers = workers
-        self.queue_size = queue_size
         self.call_timeout = call_timeout
         self.pending_limit = pending_limit
         self._token = token
@@ -76,7 +71,7 @@ class OneBotWebSocketAdapter:
         self._accepting_events = False
         self._started = False
         self._stopping = False
-        self._event_tasks: set[asyncio.Task[Any]] = set()
+        self._last_overload_log = float("-inf")
 
     @property
     def active_client(self) -> OneBotWebSocketClient | None:
@@ -135,35 +130,17 @@ class OneBotWebSocketAdapter:
             server.close(close_connections=False)
             if self._active_ws is None:
                 await server.wait_closed()
+        if mode == "drain" and self.runtime is not None:
+            # Keep receiving responses and let accepted hooks issue calls until
+            # this adapter's work has drained. Runtime owns the outer deadline.
+            await self.runtime.scheduler.wait_adapter_idle(self.adapter_id)
         client = self._active_client
         if client is not None:
             await client.stop(mode)
-        if mode == "abort":
-            await self._close_active(1012, "runtime abort")
-        elif self._event_tasks or (client is not None and client.pending_count):
-            # Runtime drain keeps the physical connection alive until accepted
-            # events and their action calls finish. Runtime owns the 30-second
-            # outer deadline and upgrades to abort when this doesn't converge.
-            while self._event_tasks or (
-                self._active_client is not None
-                and self._active_client.pending_count
-            ):
-                if self._event_tasks:
-                    await asyncio.wait(
-                        tuple(self._event_tasks),
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                elif self._active_client is not None:
-                    await self._active_client.wait_pending()
-            await self._close_active(1001, "runtime drain complete")
+            if mode == "drain":
+                await client.wait_pending()
+        await self._close_active(1012 if mode == "abort" else 1001, f"runtime {mode}")
         self._started = False
-
-        # Submission tasks only perform bounded Runtime admission. Drain waits
-        # for those admissions; abort cancels them through the supervisor.
-        if mode == "drain":
-            await self._wait_submissions()
-        elif self.runtime is not None:
-            await self.runtime.tasks.cancel_owner(self, grace=1.0)
 
     async def teardown(self) -> None:
         self._accepting_events = False
@@ -215,8 +192,13 @@ class OneBotWebSocketAdapter:
             await client.start()
             self._inc("onebot_connections_total")
             logger.info("OneBot client connected connection_id=%s", connection_id)
+            frames = 0
             async for message in ws:
                 await self._process_frame(message, client, connection_id)
+                frames += 1
+                if frames == 64:
+                    frames = 0
+                    await asyncio.sleep(0)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -258,6 +240,7 @@ class OneBotWebSocketAdapter:
             adapter_id=self.adapter_id,
             connection_id=connection_id or client.connection_id,
             session_id=self._session_id(raw),
+            admission_bytes=2048 + 12 * sys.getsizeof(message),
         )
         try:
             self._submit_event(envelope)
@@ -270,56 +253,17 @@ class OneBotWebSocketAdapter:
                 envelope.connection_id,
             )
 
-    def _submit_event(self, envelope: Envelope) -> None:
+    def _submit_event(self, envelope: Envelope):
         runtime = self.runtime
         if runtime is None:
             raise RuntimeError("adapter is not set up")
-        if len(self._event_tasks) >= self.queue_size:
-            self._inc("onebot_events_dropped_total", reason="overload")
-            logger.warning("OneBot event dropped event_id=%s reason=overload", envelope.event_id)
-            return
-        awaitable = self._emit(envelope)
-        try:
-            task = runtime.tasks.spawn(
-                awaitable,
-                name=f"onebot:event-submit:{envelope.event_id}",
-                owner=self,
-                critical=False,
-            )
-        except BaseException:
-            if inspect.iscoroutine(awaitable):
-                awaitable.close()
-            raise
-        self._event_tasks.add(task)
-        task.add_done_callback(self._event_tasks.discard)
-
-    async def _emit(self, envelope: Envelope) -> object | None:
-        runtime = self.runtime
-        if runtime is None:
-            raise RuntimeError("adapter is not set up")
-        emit = getattr(runtime, "emit_from_adapter", None)
-        if not callable(emit):
-            emit = getattr(runtime, "emit")
-        try:
-            parameters = inspect.signature(emit).parameters
-        except (TypeError, ValueError):
-            parameters = {}
-        has_kwargs = any(
-            parameter.kind is inspect.Parameter.VAR_KEYWORD
-            for parameter in parameters.values()
-        )
-        kwargs: dict[str, object] = {}
-        if has_kwargs or "adapter_id" in parameters:
-            kwargs["adapter_id"] = self.adapter_id
-        if has_kwargs or "reject" in parameters:
-            kwargs["reject"] = False
-        if has_kwargs or "wait" in parameters:
-            kwargs["wait"] = False
-        result = emit(envelope, **kwargs)
-        if inspect.isawaitable(result):
-            result = await result
+        result = runtime.submit(envelope, reject=False)
         if result is None:
             self._inc("onebot_events_dropped_total", reason="overload")
+            now = monotonic()
+            if now - self._last_overload_log >= 1.0:
+                self._last_overload_log = now
+                logger.warning("OneBot event rejected event_id=%s reason=overload", envelope.event_id)
         return result
 
     async def _close_active(self, code: int, reason: str) -> None:
@@ -329,11 +273,6 @@ class OneBotWebSocketAdapter:
         ws = self._active_ws
         if ws is not None:
             await self._close_ws(ws, code, reason)
-
-    async def _wait_submissions(self) -> None:
-        tasks = tuple(self._event_tasks)
-        if tasks:
-            await asyncio.gather(*(asyncio.shield(task) for task in tasks))
 
     @staticmethod
     async def _close_ws(ws, code: int, reason: str) -> None:

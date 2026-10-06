@@ -1,0 +1,16 @@
+{
+  "benchmarks/results/framework-comparison-representative.json": "1a7fc64cd8fd10d0bc4f2271fb01b3b851180f63fe2b5d70e10b4d06c6c26a09",
+  "docs/FRAMEWORK_COMPARISON_REPRESENTATIVE.md": "b9298df1456a67b683e524efa973942f8977c9e232ec3b32188981e5f62e94b1",
+  "docs/assets/performance/framework-representative-burst.png": "d0a520b88e194bd424b43e68caa4c6e05b19be1cce508437700bdea8b6c52d10",
+  "docs/assets/performance/framework-representative-burst.svg": "1970444552ab456109faa3ee2800074d538c742af1f47ce6ca53ba3df3fb4e8e",
+  "docs/assets/performance/framework-representative-load.png": "ddcea5faf46ee6bfaa905cd6bbfc99f016d50ce1aadfd59d9e89e3bf198c763d",
+  "docs/assets/performance/framework-representative-load.svg": "e53e126f38b345477cf8863d427f77f300b5bfcf14321453a56e529d3c55674f",
+  "docs/assets/performance/framework-representative-overview.png": "332061b2dcab16e7ebf4932db1d722ff05d1183bf06d3977c823c5919ed8fa47",
+  "docs/assets/performance/framework-representative-overview.svg": "e5b7e6f22961e9e48f876a82bb15d748902c4214b3b27905f2c4fa2323d3671b",
+  "docs/assets/performance/framework-representative-resources.png": "5f1144c0aca1952ab92e7cea80f59aea85a01ad932f06fa48dc0f12726634dbe",
+  "docs/assets/performance/framework-representative-resources.svg": "304583801348bdf529809a6f64423b16f2ede8a27e5ed5cc3f68dee06728dc33",
+  "docs/assets/performance/framework-representative-scaling.png": "f2114cdf3ad23f76c43e811072e69b3d69cd33ac7028ee84650684270b3dd0ba",
+  "docs/assets/performance/framework-representative-scaling.svg": "9a3a22ead60b6258b85a56a67b4c71c7f2cd54bb78f3d7a32e01440e85b28c75",
+  "docs/assets/performance/framework-representative-storage.png": "e8b5ceba4a45bfae4148abf7390021b79a06d966d6c8a678bfc6bdb5970c3e1a",
+  "docs/assets/performance/framework-representative-storage.svg": "6df874de8ab5610d736f9dfe529d6fada34c1fe178c75a3780a5bb6236490255"
+}

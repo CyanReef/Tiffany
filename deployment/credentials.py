@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 
 from .paths import RuntimePaths
 from .storage import save_documents

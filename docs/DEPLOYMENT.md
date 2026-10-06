@@ -22,7 +22,7 @@ screen -S tiffany bash /opt/Tiffany/start.sh
 bash /opt/Tiffany/start.sh configure
 bash /opt/Tiffany/start.sh check-config
 bash /opt/Tiffany/start.sh login
-bash /opt/Tiffany/start.sh configure --import-config /opt/Tiffany/Tiffany.toml
+bash /opt/Tiffany/start.sh configure --import-config /path/to/old/Tiffany.toml
 ```
 
 `login` 仅用于已有 QQ 配置；重新扫码可能得到另一个 AppID，成功后配置随之切换。环境变量指定的密钥仍有最高优先级，使用本地新凭据时应撤销旧环境变量。导入保留原 TOML 内容，不复制环境变量中的密钥；导入后执行 `check-config`，缺少 QQ 密钥时运行 `login`。
@@ -144,7 +144,7 @@ curl http://127.0.0.1:9464/metrics
 python -B tools/build_release.py
 ```
 
-发布工具按明确的程序文件列表打包，并验证 ZIP 不含根目录 data；旧根目录 Tiffany.toml 也不进入更新包。sdist 使用 MANIFEST.in 排除 data，wheel 使用明确的包列表。普通源码归档也应检查不含 data，勿手工将运行目录加入更新包。
+发布工具按明确的程序文件列表打包，并验证 ZIP 不含根目录 data。旧配置参考保存在 `examples/legacy/Tiffany.toml`，普通启动仍只读取运行目录下的配置；更新包只带根目录的单份英文 `LICENSE`。sdist 使用 MANIFEST.in 排除 data，wheel 使用明确的包列表。普通源码归档也应检查不含 data，勿手工将运行目录加入更新包。
 
 服务器更新：
 

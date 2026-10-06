@@ -8,8 +8,6 @@ platform = "napcat"
 [adapter.websocket]
 host = "127.0.0.1"
 port = 6199
-workers = 4
-queue_size = 256
 call_timeout = 30.0
 pending_limit = 256
 # Environment variable takes priority over data/secrets/credentials.json.
@@ -32,3 +30,8 @@ window = 600.0
 max_restarts = 5
 delays = [2, 5, 15, 30, 60]
 stop_timeout = 45.0
+
+[scheduler]
+max_events = 8192
+buffer_budget_bytes = 67108864
+max_concurrency = 64

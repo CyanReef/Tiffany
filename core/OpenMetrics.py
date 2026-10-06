@@ -37,11 +37,12 @@ class _Dependencies:
 class _SnapshotCollector:
     """Translate an immutable core snapshot at scrape time."""
 
-    __slots__ = ("_metrics", "_metric_type")
+    __slots__ = ("_metrics", "_metric_type", "_scheduler")
 
-    def __init__(self, metrics: MetricRegistry, metric_type: type[Any]) -> None:
+    def __init__(self, metrics: MetricRegistry, metric_type: type[Any], scheduler=None) -> None:
         self._metrics = metrics
         self._metric_type = metric_type
+        self._scheduler = scheduler
 
     def collect(self):
         grouped: dict[str, list[Any]] = {}
@@ -57,6 +58,11 @@ class _SnapshotCollector:
             for sample in samples:
                 metric.add_sample(name, dict(sample.labels), sample.value)
             yield metric
+        if self._scheduler is not None:
+            for name, value in self._scheduler.snapshot().items():
+                metric = self._metric_type(name, "Tiffany scheduler budget.", "gauge")
+                metric.add_sample(name, {}, value)
+                yield metric
 
 
 class OpenMetricsExporter:
@@ -149,7 +155,8 @@ class OpenMetricsExporter:
                 auto_describe=False
             )
             registry.register(
-                _SnapshotCollector(metrics, dependencies.prometheus_core.Metric)
+                _SnapshotCollector(metrics, dependencies.prometheus_core.Metric,
+                                   getattr(self._runtime, "scheduler", None))
             )
 
             async def handle_metrics(request: Any) -> Any:

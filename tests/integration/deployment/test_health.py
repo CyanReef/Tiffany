@@ -6,7 +6,7 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import InvalidStatus
 
 from adapters.OneBotWebSocketAdapter import OneBotWebSocketAdapter
-from core import Bot, OpenMetricsExporter, RuntimeState, ServiceKey
+from core import Bot, Envelope, OpenMetricsExporter, RuntimeState, ServiceKey
 
 
 class HealthAndAuthTests(unittest.IsolatedAsyncioTestCase):
@@ -17,7 +17,11 @@ class HealthAndAuthTests(unittest.IsolatedAsyncioTestCase):
             live=lambda: bot.runtime.state == RuntimeState.RUNNING,
             ready=lambda: adapter.ready and bot.runtime.scheduler.accepting)
         bot.service(ServiceKey("monitor"), monitor)
+        @bot.hook(name="exported")
+        async def exported(ctx):
+            pass
         await bot.start()
+        await bot.emit(Envelope("test", {}, adapter_id="test"))
         bot.metrics.inc("test_events_total", labels={"adapter": "test"})
         port = monitor._site._server.sockets[0].getsockname()[1]
         ws_port = adapter._server.sockets[0].getsockname()[1]
@@ -31,6 +35,12 @@ class HealthAndAuthTests(unittest.IsolatedAsyncioTestCase):
                 async with client.get(base + "/metrics") as response:
                     content = await response.text()
                     self.assertIn('test_events_total{adapter="test"} 1.0', content)
+                    self.assertIn('events_received_total{adapter="test",platform="test"} 1.0', content)
+                    self.assertIn('event_duration_seconds_count{adapter="test",platform="test"} 1.0', content)
+                    self.assertIn('hook_executions_total{hook="exported",platform="test",reason="completed"} 1.0', content)
+                    self.assertIn('hook_duration_seconds_count{hook="exported",platform="test",reason="completed"} 1.0', content)
+                    self.assertIn('events_active{adapter="test"} 0.0', content)
+                    self.assertIn('event_queue_depth{adapter="test"} 0.0', content)
                     self.assertTrue(content.endswith("# EOF\n"))
                     self.assertIn("application/openmetrics-text", response.headers["Content-Type"])
                 for headers in (None, {"Authorization": "Bearer wrong"},

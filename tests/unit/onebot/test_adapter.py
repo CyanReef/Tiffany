@@ -3,11 +3,12 @@
 import asyncio
 import json
 import unittest
+from unittest.mock import patch
 
 from adapters import create_adapter
 from adapters.OneBotWebSocketAdapter import OneBotWebSocketAdapter
 from clients import OneBotWebSocketClient
-from core import Bot
+from core import Bot, Envelope
 from hooks import register_hooks
 from settings import AdapterConfig, WebSocketConfig
 from tests.support.onebot import FakeRuntime, FakeWebSocket
@@ -36,10 +37,10 @@ class AdapterConfigurationTests(unittest.TestCase):
         # Runtime limits and fairness are covered by integration/core/test_scheduler.py.
         # Construction preserves the configured adapter limits.
         adapter = OneBotWebSocketAdapter(
-            "127.0.0.1", 6199, "napcat", workers=2, queue_size=1
+            "127.0.0.1", 6199, "napcat", workers=2
         )
         self.assertEqual(adapter.workers, 2)
-        self.assertEqual(adapter.queue_size, 1)
+        self.assertFalse(hasattr(adapter, "queue_size"))
 
     def test_factory_new_signature_is_side_effect_free(self):
         config = AdapterConfig(
@@ -56,7 +57,7 @@ class AdapterIngressTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.runtime = FakeRuntime()
         self.adapter = OneBotWebSocketAdapter(
-            "127.0.0.1", 6199, "napcat", queue_size=1
+            "127.0.0.1", 6199, "napcat"
         )
         await self.adapter.setup(self.runtime)
         self.adapter._accepting_events = True
@@ -64,6 +65,26 @@ class AdapterIngressTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         await self.runtime.tasks.close()
+
+    async def test_synchronous_admission_without_submission_task(self):
+        envelope = Envelope("napcat", {})
+        for _ in range(10):
+            self.adapter._submit_event(envelope)
+        self.assertEqual(self.runtime.envelopes, [envelope] * 10)
+        self.assertEqual(self.runtime.tasks.snapshot(), ())
+
+    async def test_buffered_frames_yield_to_control_task_every_64_frames(self):
+        counts = []
+        ws = FakeWebSocket(incoming=[json.dumps({'post_type': 'message'})] * 128)
+        async def control():
+            counts.append(len(self.runtime.envelopes))
+            await asyncio.sleep(0)
+            counts.append(len(self.runtime.envelopes))
+        observer = asyncio.create_task(control())
+        await self.adapter.handle(ws)
+        await observer
+        self.assertEqual(counts, [64, 128])
+        self.assertEqual(len(self.runtime.envelopes), 128)
 
     async def test_echo_is_never_emitted_and_orphan_is_counted(self):
         ws = FakeWebSocket()
@@ -85,33 +106,16 @@ class AdapterIngressTests(unittest.IsolatedAsyncioTestCase):
             1,
         )
 
-    async def test_runtime_emit_fallback_uses_non_waiting_admission(self):
-        class CurrentRuntime(FakeRuntime):
-            def __init__(self):
-                super().__init__()
-                self.emit_calls = []
+    async def test_rejection_is_counted_and_log_is_rate_limited(self):
+        self.runtime.emit_result = None
+        with self.assertLogs("adapters.OneBotWebSocketAdapter", level="WARNING") as logs:
+            for _ in range(10):
+                self.adapter._submit_event(Envelope("napcat", {}))
+        self.assertEqual(len(logs.output), 1)
+        self.assertEqual(self.runtime.metrics.snapshot().get(
+            "onebot_events_dropped_total", {"platform": "napcat", "adapter": self.adapter.adapter_id, "reason": "overload"}), 10)
 
-            async def emit(self, envelope, *, reject, wait):
-                self.emit_calls.append((envelope, reject, wait))
-                return object()
-
-        runtime = CurrentRuntime()
-        adapter = OneBotWebSocketAdapter("127.0.0.1", 6199, "napcat")
-        await adapter.setup(runtime)
-        adapter._accepting_events = True
-        # Shadow the inherited fake API so the adapter exercises Runtime.emit.
-        runtime.emit_from_adapter = None
-        client = OneBotWebSocketClient(FakeWebSocket())
-        await adapter._process_frame(
-            json.dumps({"post_type": "notice"}), client, "connection-1"
-        )
-        await asyncio.sleep(0)
-        self.assertEqual(len(runtime.emit_calls), 1)
-        self.assertEqual(runtime.emit_calls[0][1:], (False, False))
-        await runtime.tasks.close()
-
-    async def test_event_metadata_session_and_drop_newest(self):
-        self.runtime.emit_gate = asyncio.Event()
+    async def test_event_metadata_session_and_charge(self):
         client = OneBotWebSocketClient(FakeWebSocket())
         raw = {
             "post_type": "message", "message_type": "group",
@@ -121,12 +125,12 @@ class AdapterIngressTests(unittest.IsolatedAsyncioTestCase):
         await self.adapter._process_frame(json.dumps(raw), client, "connection-1")
         await asyncio.sleep(0)
 
-        self.assertEqual(len(self.runtime.envelopes), 1)
+        self.assertEqual(len(self.runtime.envelopes), 2)
         envelope = self.runtime.envelopes[0]
         self.assertEqual(envelope.connection_id, "connection-1")
         self.assertEqual(envelope.session_id, "7:group:42")
         self.assertEqual(envelope.adapter_id, self.adapter.adapter_id)
-        self.runtime.emit_gate.set()
+        self.assertGreater(envelope.admission_bytes, 2048)
         await asyncio.sleep(0)
 
     async def test_single_active_connection_rejects_second_with_1013(self):

@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "A raw-first, synchronous-lazy hook runtime"
 readme = "README.md"
 license = "MIT"
-license-files = ["LICENSE", "LICENSE.en"]
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "websockets>=16,<17",

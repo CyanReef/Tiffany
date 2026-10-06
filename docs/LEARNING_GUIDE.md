@@ -2,7 +2,7 @@
 
 推荐按“看懂现有功能 → 跟踪一次事件 → 理解数据与资源 → 修改框架机制”的顺序学习。全量文件分类见 [源码地图](CODE_MAP.md)，测试位置和运行方式见 [测试导航](../tests/README.md)。
 
-## 1. 按六个阶段阅读
+## 1. 按阶段阅读
 
 | 阶段 | 学习目标 | 阅读顺序 | 对照测试 |
 | --- | --- | --- | --- |
@@ -14,6 +14,8 @@
 | 6. 传输与并发如何配合 | 理解 echo、pending、过载接纳、会话队列和观测 | [Adapter](../adapters/OneBotWebSocketAdapter.py) → [Client](../clients/OneBotWebSocketClient.py) → [Scheduler](../core/EventScheduler.py) → [Trace](../core/Trace.py) | [客户端](../tests/unit/onebot/test_client.py)、[调度](../tests/integration/core/test_scheduler.py)、[追踪](../tests/integration/core/test_trace.py) |
 | 7. 服务器如何启动 | 理解环境复用、配置保护、进程监督和健康检查 | 启动脚本 → [启动器](../deployment/launcher.py) → [环境准备](../deployment/environment.py) → [监督](../deployment/supervisor.py) → [应用](../application.py) | [环境](../tests/unit/deployment/test_environment.py)、[真实进程](../tests/integration/deployment/test_processes.py)、[Windows 入口](../tests/integration/deployment/test_windows_entrypoints.py) |
 | 8. 扩展如何持久保存数据 | 理解 `APP_PATHS` 与 owner，区分关键故障和清理结果 | [路径服务键](../core/Paths.py) → [共享布局](../shared/paths.py) → `ctx.service(APP_PATHS)`；`Runtime.wait_closed/failure_cause` | [分层和路径服务](../tests/unit/core/test_layering.py)、[运行边界](../tests/integration/core/test_server_regressions.py) |
+| 9. 性能如何优化且保持契约 | 理解指标绑定/原子写入、直接公平派发和独立事件 Task | [Metrics](../core/Metrics.py) → `EventScheduler._pump/_finish_work` → [完整路径前后对照](../benchmarks/optimize.py) | [指标回归](../tests/unit/core/test_metrics.py)、[调度回归](../tests/integration/core/test_scheduler_regressions.py) |
+| 10. 如何比较不同框架 | 对齐业务、并发与计时边界，区分消息路径、接纳策略和完整应用 | [场景定义](../benchmarks/representative/cases.py) → [协调器](../benchmarks/representative/run.py) → [原生接入](../benchmarks/representative/engines.py) / [Koishi](../benchmarks/representative/koishi.cjs) → [多维结果](FRAMEWORK_COMPARISON_REPRESENTATIVE.md) | JSON 中的业务/规则/字符/HTTP/指标计数核验；突发提交、完成、排队与拒绝交叉核验 |
 
 每个阶段先运行对应测试，再看测试里如何构造输入、等待结果和断言行为。读到与当前目标无关的底层实现时，可以沿着源码地图返回上层入口。
 
@@ -230,4 +232,38 @@ asyncio.run(main())
 
 Scope abort 会立即发出取消请求，不承诺强制结束拒绝取消的协程。卸载进行期间阻止新注册；取消未收敛时保留相应 Provider/Service，已禁用的 Hook 保持禁用，待旧工作结束后可以再次卸载。失败返回后 Scope 仍是 active，只有成功卸载才变为 inactive。对照 [服务器边界回归](../tests/integration/core/test_server_regressions.py) 中的拒绝取消与重试场景理解这一点。
 
-当前实现以这份学习路线、[源码地图](CODE_MAP.md) 和测试为准。根目录 `FRAMEWORK_PLAN.md` 与 `target.md` 保存早期规划，里面的阶段和布局不是当前实现承诺。
+## 9. 保留核心思想，理解指标与调度优化
+
+Tiffany 保留原始事件，字段在 `ctx.resolve()` 时按需解析，业务从 Hook 开始；Runtime 管理调度和资源生命周期。共享预算和按需并发保留这些边界，默认额度已更新，配置与接纳契约见 [弹性调度说明](ELASTIC_SCHEDULING.md)。
+
+按下面的顺序跟踪一次事件：
+
+1. Adapter 使用同步 `Runtime.submit()`；异步 `emit()` 共用内部接纳路径。Scheduler 先检查共享事件数、估算占用和保留额度资格，通过后才捕获 Hook、Provider、Service 快照、创建 Future 并保留 owner。事件入会话队列后立即触发 `_pump()`。
+2. `_pump()` 从可运行 Adapter 队列选取，Adapter 内会话轮转；已达到并发上限的 Adapter 暂时退出轮转。每条事件通过 TaskRegistry 按需创建独立 Task，复制 `start()` 时的上下文；提交者的 `ContextVar` 改动和上一条事件的改动不会传入下一条。
+3. Hook 完成时批量提交执行计数与耗时，事件完成时批量提交事件耗时。Registry 的绑定 LRU 复用规范化标签，同一状态更新与快照共用线程锁，因此这些指标立即可见。缓存只持有元数据，序列上限与拒绝计数仍生效；业务继续使用公开的 `inc/set/set_max/observe/snapshot`。
+4. `_finish_work()` 将 Work 从排队或活动转为结束，只释放一次计数和 owner。Task 尚未进入协程就被取消时，由完成回调执行同一清理；工作拒绝取消时，仍保持活动状态，相关资源不会因等待者退出而提前释放。
+5. `wait=True` 直接等待完成 Future，等待者取消时显式撤销排队工作或取消活动 Task。`wait=False` 返回的 Future 被取消，仅撤销结果等待，已接纳工作继续执行；这延续原有后台提交契约。
+
+默认预算为 8192 个事件和 64 MiB 估算占用，执行上限 64；32 是使用 1/8 保留额度的资格线，不限制单会话积压。没有常驻 worker 或采样控制器。
+
+建议分别运行以下测试，解释计数、资源和返回值为什么如此变化：
+
+```powershell
+python -B -m unittest tests.unit.core.test_metrics -v
+python -B -m unittest tests.integration.core.test_scheduler_regressions -v
+python -B -m unittest tests.integration.deployment.test_health -v
+```
+
+然后读 [性能优化报告](archive/PERFORMANCE_OPTIMIZATION.md)，对照相同源码指纹、真实指标、处理次数及同批交替采样，区分微基准、完整处理路径和平台端到端容量。优化前快照和阶段结果用于回退与复测；不通过关闭指标或合并事件 Task 获得验收数字。
+
+## 10. 按工作负载比较框架
+
+先读 [场景定义](../benchmarks/representative/cases.py)：全部匹配处理器、其他事件类别、同类 False 规则是三种不同工作。其他类别可以由注册索引排除，同类规则必须执行才能决定是否匹配；不能用一个“无关处理器”数字概括这两者。长文本、分段和重复字段读取也分别测试不同成本。
+
+[Python 接入](../benchmarks/representative/engines.py) 与 [Koishi 接入](../benchmarks/representative/koishi.cjs) 都保留原生解析器和分发器，只注册测试业务与观察完成。输入文本在计时外准备，原生事件容器、解析、调度与全部业务完成在计时内。Tiffany 保留逐事件实时指标，各框架保留自己的字段缓存策略；调用次数和字符数核验用于发现漏处理或只测到提交结束的问题。[源码边界](../benchmarks/representative/sources.py) 同时冻结核心、协议和共享配置依赖，worker 在所有历史 helper 导入之后将快照置于搜索路径首位，并核验实际导入模块来自快照，避免测量时混入工作区代码。
+
+读 [worker](../benchmarks/representative/worker.py) 时区分闭环 I/O 与突发接纳：前者每个会话顺序等待上一条完成，并显式对齐并发限制；后者同时提交事件，处理器等待测试控制器的释放信号，在已进入处理器的数量持续至少 100 ms 不再变化后观察接纳状态。图中区分已进入处理器、已接纳但未进入处理器、接纳拒绝，均为事件计数。Tiffany 从 Scheduler 读取 active/queued 交叉核验，释放信号后检查已接纳事件全部完成。等待信号的处理器尚未完成；被拒绝事件不算成功吞吐，观察到的 FIFO 也不等于顺序保证。
+
+最后对照 [离线消息处理基准](FRAMEWORK_COMPARISON_REPRESENTATIVE.md) 的六幅图、对应数值表和 [原始 JSON](../benchmarks/results/representative/framework-comparison-representative.json)。[展示条件](../benchmarks/representative/presentation.py) 让内存、配置读取等图表与表格采用相同场景顺序。重复测量单位是框架进程，每个框架五轮；每轮的 1,000 条计时事件不作为额外独立重复。数值为跨轮中位数，误差线与阴影表示最小–最大范围；图 3 下半部与图 4 展示各轮一致的接纳、完成和并发计数。P95/P99 先在每轮内计算，再取跨轮中位数，不是合并事件后的分位数。测试进程初始化时间、CPU、工作集与采样峰值各有边界，服务端等待也不等同于事件完成延迟。结合图表观察差异，用数值表读取结果，按场景解释所测入口。
+
+当前实现以这份学习路线、[源码地图](CODE_MAP.md) 和测试为准。[项目方向](planning/target.md) 说明核心约束，[实施计划](planning/FRAMEWORK_PLAN.md) 只列尚未完成的开发和验收事项；规划中的接口与功能须在交付后补充到学习文档。当前说明、设计研究和历史报告统一从 [文档导航](README.md) 查找。

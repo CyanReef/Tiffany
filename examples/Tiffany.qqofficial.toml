@@ -11,7 +11,7 @@ platform = "qq_official"
 app_id = "YOUR_APP_ID"
 app_secret_env = "TIFFANY_QQBOT_SECRET"
 sandbox = false
-workers = 4
+max_inflight = 16
 call_timeout = 30.0
 
 [logging]
@@ -31,3 +31,8 @@ window = 600.0
 max_restarts = 5
 delays = [2, 5, 15, 30, 60]
 stop_timeout = 45.0
+
+[scheduler]
+max_events = 8192
+buffer_budget_bytes = 67108864
+max_concurrency = 64

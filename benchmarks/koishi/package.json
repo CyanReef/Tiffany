@@ -1,0 +1,8 @@
+{
+  "name": "tiffany-expanded-comparison",
+  "private": true,
+  "dependencies": {
+    "koishi": "4.18.11",
+    "@koishijs/plugin-mock": "2.6.6"
+  }
+}

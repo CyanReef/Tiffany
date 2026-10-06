@@ -8,8 +8,11 @@ platform = "napcat"
 [adapter.websocket]
 host = "127.0.0.1"
 port = 6199
-workers = 4
-# Set workers = 1 when strict per-connection event ordering is required.
-queue_size = 256
+# Optional workers = 1 limits event concurrency; ordering is per session.
 call_timeout = 30.0
 pending_limit = 256
+
+[scheduler]
+max_events = 8192
+buffer_budget_bytes = 67108864
+max_concurrency = 64

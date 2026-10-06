@@ -6,17 +6,17 @@
 
 | 目录 | 覆盖内容 | 测试数 |
 | --- | --- | ---: |
-| `unit/core` | 字段懒计算、Provider/Service 注册表、隔离依赖的指标导出、核心/启动器分层 | 24 |
-| `unit/onebot` | 协议字段、客户端调用、使用运行时假对象的适配器接入 | 19 |
+| `unit/core` | 字段懒计算、Provider/Service 注册表、有界平台校验缓存、指标绑定/并发、实时预算抓取、核心/启动器分层 | 35 |
+| `unit/onebot` | 协议字段、客户端调用、同步接纳、每 64 帧让出、限频拒绝日志与连接代际 | 21 |
 | `unit/hooks` | 命令解析 | 1 |
-| `unit/qqofficial` | 官 Bot 配置、懒字段、接纳与去重、Token 和回复调用 | 27 |
-| `integration/core` | Bot 分发、Hook、追踪、生命周期、调度和 Scope 卸载、服务器边界回归 | 49 |
-| `integration/onebot` | 帧处理与 Hook 的协作、适配器安装和本机服务器生命周期 | 4 |
+| `unit/qqofficial` | 官 Bot 配置、共享策略往返、独立 HTTP 额度、Adapter drain、懒字段、接纳与去重、Token 和回复调用 | 30 |
+| `integration/core` | Bot 分发、Hook、追踪、生命周期、弹性突发与保留额度、Scope 卸载、取消/上下文/派发故障、引用释放与实际 owner 回归 | 81 |
+| `integration/onebot` | 帧处理与 Hook 的协作、适配器安装、本机 WebSocket 满载 echo/ping/drain | 5 |
 | `integration/hooks` | Ping 回复、事件过滤和字段懒计算的完整流程 | 3 |
 | `integration/qqofficial` | 本机 HTTP/WebSocket、现有 Ping 复用、恢复、过载、心跳与资源清理 | 16 |
 | `unit/deployment` | 配置保护、备份、脱敏、扫码模拟、环境复用、跨平台隔离、失败恢复、旧编码输出 | 25 |
 | `integration/deployment` | 真实 HTTP/Token/健康、更新包、覆盖回滚、锁、子进程、Windows 入口和限次重启 | 17 |
-| **合计** | Windows 跳过 4 项 POSIX 信号测试；Linux 跳过 5 项 Windows 入口测试 | **185** |
+| **合计** | Windows 跳过 4 项 POSIX 信号测试；Linux 跳过 5 项 Windows 入口测试；Python 3.11 另跳过 eager Task 测试 | **234** |
 
 单元测试隔离外部服务；分层测试使用新 Python 子进程阻止相邻层和可选依赖导入，路径用临时目录。集成测试验证多个真实组件的协作，其中适配器测试会启动本机 HTTP/WebSocket 监听。两类测试均不需要外部 NapCat 或腾讯账号。完整测试先执行 `python -m pip install --require-hashes --only-binary=:all: -r requirements-server.lock`。[CI](../.github/workflows/server.yml) 在 Linux Python 3.11～3.14、Windows Python 3.11/3.14 上运行，并检查发布物不含 data。账号与 24 小时持续运行验收见[部署说明](../docs/DEPLOYMENT.md)。
 
@@ -27,9 +27,11 @@ tests/
 ├── unit/
 │   ├── core/
 │   │   ├── test_context.py                 # 字段解析与缓存
+│   │   ├── test_validation_cache.py        # 有界平台缓存与依赖重校验
 │   │   ├── test_provider_registry.py       # Provider 注册、快照和撤销
 │   │   ├── test_service_registry.py        # Service 身份、依赖和撤销
 │   │   ├── test_layering.py                # 核心独立使用与标准库启动器
+│   │   ├── test_metrics.py                 # 绑定、原子批量、序列上限与多线程快照
 │   │   └── test_openmetrics_exporter.py    # 指标导出与可选依赖
 │   ├── onebot/
 │   │   ├── test_fields.py                  # 原始协议数据转换
@@ -54,10 +56,13 @@ tests/
 │   │   ├── test_trace.py                   # 追踪、采样和隐私
 │   │   ├── test_lifecycle.py               # 启动、回滚和关闭
 │   │   ├── test_scheduler.py               # 容量、并发与会话公平性
+│   │   ├── test_scheduler_regressions.py   # 取消竞争、独立上下文、动态限制与派发故障
+│   │   ├── test_elastic_scheduler.py       # 128～4096 突发、预算保留、取消与 drain
 │   │   ├── test_scope.py                   # 依赖阻止与资源卸载
 │   │   └── test_server_regressions.py      # 真实结束、abort、服务归属和指标边界
 │   ├── onebot/
 │   │   ├── test_adapter_frames.py          # 坏帧和 Hook 故障隔离
+│   │   ├── test_elastic_transport.py       # 真正满载时 echo/ping 与停机排空
 │   │   └── test_adapter_lifecycle.py       # 安装、监听和关闭
 │   ├── hooks/
 │   │   └── test_ping.py                    # 消息到回复的完整流程
@@ -102,6 +107,16 @@ python -m unittest discover -s tests/integration/deployment -t . -q
 python -B -m unittest discover -s tests/unit/qqofficial -t . -v
 python -B -m unittest discover -s tests/integration/qqofficial -t . -v
 ```
+
+## 弹性调度验证
+
+预算、FIFO、取消、扩容和真实 WebSocket 满载行为可集中复测：
+
+```powershell
+python -B -m unittest tests.integration.core.test_elastic_scheduler tests.integration.core.test_scheduler_regressions tests.integration.onebot.test_elastic_transport -q
+```
+
+性能对照在独立测量环境执行，不作为共享 CI 的速度门槛。[性能报告](../docs/PERFORMANCE_ELASTIC.md) 提供原始数据和命令，`python -B -m benchmarks.elastic_validate <结果.json>` 可独立重算完成吞吐、源码摘要和验收条件。
 
 ## 后续放置规则
 

@@ -41,6 +41,7 @@ from .Service import (
 
 # 4. 运行与生命周期：启动、任务监督、关闭及清理报告。
 from .Runtime import Lifespan, Runtime
+from .SchedulerPolicy import SchedulerPolicy
 from .TaskRegistry import TaskInfo, TaskRegistry
 from .Lifecycle import (
     CleanupResult,
@@ -95,6 +96,7 @@ __all__ = [
     "ServiceOwnershipError",
     # 运行与生命周期
     "Runtime",
+    "SchedulerPolicy",
     "Lifespan",
     "TaskRegistry",
     "TaskInfo",

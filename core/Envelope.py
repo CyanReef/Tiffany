@@ -21,7 +21,7 @@ class Envelope:
     原始消息信封。
 
     platform:
-        消息来自哪个平台。现在是 "napcat"，以后可以是 "qq_official"、"telegram" 等。
+        消息来自哪个平台，例如 "napcat" 或 "qq_official"；核心不依赖具体平台。
 
     raw:
         平台发来的原始消息字典。这里不做全量解析，是整个轻量框架的关键。
@@ -51,3 +51,5 @@ class Envelope:
     adapter_id: str = "application"
     connection_id: str | None = None
     session_id: str | None = None
+    # Estimated admission charge, not a deep-object size or process RSS limit.
+    admission_bytes: int | None = None

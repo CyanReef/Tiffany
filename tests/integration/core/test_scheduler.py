@@ -3,12 +3,12 @@
 import asyncio
 import unittest
 
-from core import Bot, Envelope, RuntimeOverloadedError
+from core import Bot, Envelope, RuntimeOverloadedError, SchedulerPolicy
 
 
 class SchedulerTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.bot = Bot()
+        self.bot = Bot(scheduler=SchedulerPolicy(max_concurrency=16))
         self.active = 0
         self.maximum = 0
         self.by_adapter = {}
@@ -42,6 +42,7 @@ class SchedulerTests(unittest.IsolatedAsyncioTestCase):
         futures = []
         for index in range(40):
             adapter = f"adapter-{index % 5}"
+            self.bot.runtime.scheduler.configure_adapter(adapter, 4)
             future = await self.bot.runtime.emit(
                 Envelope(
                     "test", {}, adapter_id=adapter,
@@ -130,10 +131,9 @@ class SchedulerTests(unittest.IsolatedAsyncioTestCase):
             release.set()
             await bot.stop("abort")
 
-    async def test_capacity_and_session_backlog_reject_newest(self):
+    async def test_capacity_rejects_newest(self):
         scheduler = self.bot.runtime.scheduler
         scheduler.capacity = 2
-        scheduler.session_backlog = 1
         first = await self.bot.runtime.emit(
             Envelope("test", {}, session_id="same"),
             reject=True,

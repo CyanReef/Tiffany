@@ -1,12 +1,61 @@
 """Hook handle changes and in-flight snapshot stability."""
 
 import asyncio
+import gc
 import unittest
+import weakref
 
-from core import Bot, Envelope
+from core import Bot, Context, Envelope
 
 
 class HookHandleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_removed_hook_releases_handler_after_last_external_reference(self):
+        bot = Bot()
+
+        class Handler:
+            async def __call__(self, ctx):
+                pass
+
+        handler = Handler()
+        reference = weakref.ref(handler)
+        handle = bot.register_hook(handler, name="temporary")
+        del handler
+        self.assertTrue(handle.remove())
+        self.assertEqual(bot.dispatcher.handles(), ())
+        self.assertTrue(handle.removed)
+        self.assertFalse(handle.enable())
+        self.assertFalse(handle.disable())
+        self.assertFalse(handle.remove())
+        self.assertIs(handle.hook.handle, reference())
+        del handle
+        gc.collect()
+        self.assertIsNone(reference())
+
+    async def test_bulk_removal_releases_handlers_but_keeps_snapshot_executable(self):
+        bot = Bot()
+        calls = []
+
+        class Handler:
+            async def __call__(self, ctx):
+                calls.append(ctx.raw["value"])
+
+        handler = Handler()
+        reference = weakref.ref(handler)
+        scope = bot.scope("temporary")
+        scope.register_hook(handler)
+        snapshot = bot.dispatcher.snapshot()
+        del handler
+        self.assertEqual(bot.dispatcher.remove_owner(scope.owner), 1)
+        self.assertEqual(bot.dispatcher.handles(), ())
+        await bot.dispatcher.dispatch(
+            Context(Envelope("test", {"value": 7}), bot.providers),
+            snapshot=snapshot,
+        )
+        self.assertEqual(calls, [7])
+        del snapshot
+        gc.collect()
+        self.assertIsNone(reference())
+
     async def test_handle_enable_disable_remove_and_lookup(self):
         bot = Bot()
         calls = []

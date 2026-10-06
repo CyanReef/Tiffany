@@ -66,7 +66,7 @@ class TiffanyApplication:
 
     @staticmethod
     async def _run(paths: RuntimePaths, config: AppConfig) -> int:
-        bot = TiffanyApplication._create_bot()
+        bot = TiffanyApplication._create_bot(config.scheduler)
         bot.service(APP_PATHS, paths)
         adapter = bot.install(create_adapter(config.adapter, credential_resolver=CredentialStore(paths).resolve))
         monitor = config.monitoring
@@ -147,7 +147,7 @@ class TiffanyApplication:
         return code
 
     @staticmethod
-    def _create_bot() -> Bot:
-        bot = Bot()
+    def _create_bot(scheduler=None) -> Bot:
+        bot = Bot(scheduler=scheduler)
         register_hooks(bot)
         return bot
