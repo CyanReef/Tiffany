@@ -218,7 +218,7 @@ def main():
     parser.add_argument("--contexts", type=positive_int, default=50000)
     parser.add_argument("--warmup", type=positive_int, default=200)
     parser.add_argument("--repeats", type=positive_int, default=7)
-    parser.add_argument("--output", type=Path, default=ROOT / "benchmarks/results/archive/micro/local.json")
+    parser.add_argument("--output", type=Path, default=ROOT / ".build-cache/benchmarks/local.json")
     asyncio.run(run(parser.parse_args()), debug=False)
 
 

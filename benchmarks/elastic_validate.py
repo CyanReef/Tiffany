@@ -47,14 +47,6 @@ def validate(data):
         path = Path(resume['file'].replace('\\', '/'))
         if not path.exists():
             path = Path(__file__).resolve().parents[1] / path
-        if not path.exists():
-            # Keep recorded paths/checksums intact when samples are classified.
-            root = Path(__file__).resolve().parents[1] / 'benchmarks/results'
-            for directory in ('elastic', 'archive/elastic-development'):
-                candidate = root / directory / path.name
-                if candidate.exists():
-                    path = candidate
-                    break
         if 'file_sha256' in resume:
             assert hashlib.sha256(path.read_bytes()).hexdigest() == resume['file_sha256']
         previous = json.loads(path.read_text(encoding='utf-8'))

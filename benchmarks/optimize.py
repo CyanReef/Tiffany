@@ -204,7 +204,7 @@ def main():
     parser.add_argument("--warmup", type=positive, default=200)
     parser.add_argument("--repeats", type=positive, default=7)
     parser.add_argument("--cases", nargs="+", choices=[case["name"] for case in CASES], default=[case["name"] for case in CASES])
-    parser.add_argument("--output", type=Path, default=ROOT / "benchmarks/results/archive/optimization/tiffany-optimization.json")
+    parser.add_argument("--output", type=Path, default=ROOT / ".build-cache/benchmarks/optimization/tiffany-optimization.json")
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--source-root", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--round", type=int, default=0, help=argparse.SUPPRESS)

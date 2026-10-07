@@ -330,7 +330,7 @@ def main():
     parser.add_argument("--events", type=positive_integer, default=1000)
     parser.add_argument("--warmup", type=positive_integer, default=200)
     parser.add_argument("--repeats", type=positive_integer, default=7)
-    parser.add_argument("--output", type=Path, default=ROOT / "benchmarks/results/archive/comparison/framework-comparison-expanded.json")
+    parser.add_argument("--output", type=Path, default=ROOT / ".build-cache/benchmarks/comparison/framework-comparison-expanded.json")
     parser.add_argument("--python", type=Path, default=ROOT / ".build-cache/expanded-python-env/Scripts/python.exe")
     parser.add_argument("--graia-python", type=Path, default=ROOT / ".build-cache/graia-env/Scripts/python.exe")
     parser.add_argument("--server-python", type=Path, default=Path(sys.executable),

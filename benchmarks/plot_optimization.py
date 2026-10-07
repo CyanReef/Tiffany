@@ -82,8 +82,8 @@ def render(data, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, default=ROOT / "benchmarks/results/archive/optimization/tiffany-optimization.json")
-    parser.add_argument("--output", type=Path, default=ROOT / "docs/assets/performance/tiffany-optimization")
+    parser.add_argument("--input", type=Path, default=ROOT / ".build-cache/benchmarks/optimization/tiffany-optimization.json")
+    parser.add_argument("--output", type=Path, default=ROOT / ".build-cache/benchmarks/optimization/tiffany-optimization")
     args = parser.parse_args()
     render(json.loads(args.input.read_text(encoding="utf-8")), args.output)
 

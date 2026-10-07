@@ -207,6 +207,6 @@ if __name__ == "__main__":
     parser.add_argument("--server-python", type=Path, default=Path(sys.executable))
     parser.add_argument("--node", type=Path, default=Path("C:/Program Files/nodejs/node.exe"))
     parser.add_argument("--node-env", type=Path, default=ROOT / ".build-cache/expanded-node-env")
-    parser.add_argument("--output", type=Path, default=ROOT / "benchmarks/results/representative/framework-comparison-representative.json")
+    parser.add_argument("--output", type=Path, default=ROOT / ".build-cache/benchmarks/representative/results.json")
     parser.add_argument("--resume", action="store_true")
     run(parser.parse_args())

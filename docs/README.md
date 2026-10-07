@@ -1,36 +1,39 @@
 # 文档导航
 
-项目的核心约束是 **保留原始事件、按需读取字段、用 Hook 编写业务**。本目录将现行说明、设计与规划、历史实测分别整理；入口和默认值以代码及现行说明为准。
+Tiffany 保留原始事件，按需读取字段，用 Hook 编写业务。这里按使用、开发、设计和规划组织维护中的说明；入口与默认值以当前源码和配置示例为准。
 
-## 现行说明
+## 从这里开始
 
-| 主题 | 文档 |
+| 想做什么 | 入口 |
 | --- | --- |
-| 安装与第一个 Hook | [项目 README](../README.md) |
-| 目录职责与消息调用链 | [源码地图](CODE_MAP.md) |
-| 分阶段阅读与扩展示例 | [学习路线](LEARNING_GUIDE.md) |
-| Linux / Windows 启动、配置、更新与回滚 | [部署说明](DEPLOYMENT.md) |
-| 已取得的部署证据与实机待办 | [部署验证记录](DEPLOYMENT_VALIDATION.md) |
-| QQ 字段、网关与 HTTP 边界 | [QQ 接入设计](QQOFFICIAL_DESIGN.md) |
-| 共享预算、同步接纳与公平调度 | [调度契约](ELASTIC_SCHEDULING.md) |
-| 测试分类和运行命令 | [测试导航](../tests/README.md) |
-| 测量工具、依赖和结果分类 | [基准导航](../benchmarks/README.md) |
+| 安装项目、接入 OneBot、运行第一个 Hook | [项目 README](../README.md) |
+| Linux / Windows 启动、配置、更新与回滚 | [部署指南](guides/deployment.md) |
+| 接入 QQ 官 Bot，了解字段、恢复与回复边界 | [QQ 接入指南](guides/qqofficial.md) |
+| 找到模块职责，跟踪一条消息的调用链 | [源码地图](development/code-map.md) |
+| 分阶段读代码，编写 Hook、Service 与 Scope 扩展 | [学习与开发路线](development/learning-guide.md) |
+| 运行测试，查找单元、集成和协议测试 | [测试导航](../tests/README.md) |
+| 复测性能，了解工具、计时与统计边界 | [基准指南](development/benchmarks.md) |
+| 理解分层、依赖、资源归属与投递边界 | [架构约束](design/architecture.md) |
+| 配置预算、同步接纳、公平调度与取消 | [调度契约](design/scheduling.md) |
+| 查看未完成的开发与实机验收事项 | [后续路线图](planning/roadmap.md) |
 
-## 已保存的实测
+## 目录职责
 
-| 范围 | 报告 | 状态与边界 |
-| --- | --- | --- |
-| 共享预算实施前后 | [弹性调度性能](PERFORMANCE_ELASTIC.md) | 保留未通过的性能门槛、恢复采样和 30 分钟稳定性证据 |
-| Tiffany / NoneBot / AstrBot / Koishi | [四框架消息处理](FRAMEWORK_COMPARISON_REPRESENTATIVE.md) | 2026-10-06 的离线采样；对象由来源指纹固定 |
-| 核心微基准的方法 | [基准说明](BENCHMARKS.md) | 保留 2026-09-30 结果，与后续批次分别阅读 |
+```text
+docs/
+├── README.md
+├── guides/          # 使用、部署与平台接入
+├── development/     # 源码、扩展学习与性能复测
+├── design/          # 当前架构和运行契约
+└── planning/        # 尚未完成的目标与验收
+```
 
-报告描述其记录的源码和环境。项目整理后的代码不能直接继承历史性能结论；新测量应指定新的输出文件，再独立校验和生成报告。
 
-## 设计、规划与历史
+## 维护约定
 
-- [项目方向与核心约束](planning/target.md) 和 [实施计划](planning/FRAMEWORK_PLAN.md)：只将未完成事项列为规划。
-- [dsh 架构研究](design/DSH_ARCHITECTURE_STUDY.md)：设计启发及与 Tiffany 的职责边界。
-- [历史报告索引](archive/README.md)：此前代码检查、指标/调度优化及三/六框架采样。
-- [基准结果索引](../benchmarks/results/README.md)：原始数据、源码 ZIP 和中间未通过结果。
+- 使用与开发文档描述已经实现的行为；规划只保留尚未完成的工作。
+- 配置、入口或公共接口改变时，同步更新对应指南、示例和链接。
+- 阶段测试流水随提交或版本发布记录保存，避免把某次测试数量或环境结论当作长期说明。
+- 基准方法与原始测量分开维护；新结果记录源码、依赖、环境、参数和计时边界，保留失败与中断样本。
 
-项目许可统一为根目录的标准英文 [MIT License](../LICENSE)。
+项目许可统一为根目录的 [MIT License](../LICENSE)。

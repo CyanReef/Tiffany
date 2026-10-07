@@ -4,7 +4,9 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timedelta
 import json
+import os
 from pathlib import Path
+import re
 import statistics
 
 from benchmarks.representative.cases import FRAMEWORKS
@@ -15,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 LABELS = {"tiffany": "Tiffany", "nonebot": "NoneBot 2.5.0", "astrbot": "AstrBot 4.28.2", "koishi": "Koishi 4.18.11"}
 
 
-def write_report(data, destination):
+def write_report(data, destination, *, source_path=None):
     validate(data)
     for framework in FRAMEWORKS:
         for case in ("burst_single", "burst_multi"):
@@ -39,7 +41,7 @@ def write_report(data, destination):
     add("| [NoneBot](https://github.com/nonebot/nonebot2) | Python 异步插件框架 | OneBot Adapter.json_to_event → Bot.handle_event → Matcher |")
     add("| [AstrBot](https://github.com/AstrBotDevs/AstrBot) | 支持插件的 AI 机器人应用 | AiocqhttpAdapter.convert_message → 九阶段 PipelineScheduler |")
     add("| [Koishi](https://github.com/koishijs/koishi) | Node.js / TypeScript 插件框架 | Satori Session → 官方 MockBot.dispatch → 原生 middleware |")
-    add("\n此前 [六框架报告](archive/FRAMEWORK_COMPARISON_EXPANDED.md)、[三框架报告](archive/FRAMEWORK_COMPARISON.md) 与原始结果完整保留。Entari、Graia Ariadne 不进入本轮主图，不能因此推断其优劣。")
+    add("\n复测方法见 [基准指南](development/benchmarks.md)。Entari、Graia Ariadne 不进入本轮主图，不能因此推断其优劣。")
     add("\n## 测量边界与环境")
     method = data["method"]
     add(f"\n- Windows 11 26100，AMD Ryzen 9 7940H，16 个逻辑处理器；普通开发机，未锁频或隔离后台负载。\n- 三个 Python 项目均使用 CPython 3.12.14、Windows 默认 ProactorEventLoop；Koishi 使用 Node.js 24.3.0 / libuv。版本与依赖通过锁文件固定。\n- 每个框架 {method['repeats']} 轮；每轮每个常规场景 {method['events_per_case']:,} 条事件、预热 {method['warmup_per_case']} 条。每轮框架使用独立进程，框架顺序轮换，单处理器基线先测，其余场景轮换。\n- GC 开启，日志 ERROR；Tiffany 真实逐事件指标开启并核验。关闭 LLM、真实平台连接与发送 API，各框架仍保留原生解析、过滤、调度和生命周期。")
@@ -161,23 +163,29 @@ def write_report(data, destination):
     burst_cases = [c for s in data["samples"] for c in s["cases"] if "submitted" in c]
     add("\n## 结果核验与复测")
     add(f"\n本轮完成 {len(data['samples'])} 个框架进程重复、{len(regular)} 个常规场景观测和 {len(burst_cases)} 个突发场景观测。正式计时核验 {sum(c['events'] for c in regular):,} 条事件、{sum(c['verified_handler_calls'] for c in regular):,} 次处理器调用、{sum(c['verified_predicate_calls'] for c in regular):,} 次 False 规则调用、{sum(c['verified_http_calls'] for c in regular):,} 次 HTTP 请求；另外突发提交 {sum(c['submitted'] for c in burst_cases):,} 条，完成 {sum(c['completed'] for c in burst_cases):,} 条，接纳拒绝 {sum(c['rejected'] for c in burst_cases):,} 条。预热不计入这些数字。")
-    add("\n- [原始 JSON](../benchmarks/results/representative/framework-comparison-representative.json)：全部采样、最小/最大值、计数核验、测试进程初始化时间、原生并发状态和来源指纹。\n- [测量入口](../benchmarks/representative/run.py)、[工作负载](../benchmarks/representative/cases.py)、[Python 原生路径](../benchmarks/representative/engines.py)、[Python worker](../benchmarks/representative/worker.py)、[Koishi worker](../benchmarks/representative/koishi.cjs)。\n- [结果校验](../benchmarks/representative/validate.py) 独立核对事件/字符/处理器/规则/HTTP/指标计数、分位值顺序、接纳状态和汇总值。\n- [绘图](../benchmarks/representative/plot.py)、[报告生成](../benchmarks/representative/report.py) 只读结果，不重新采样。\n- [Python 锁文件](../benchmarks/requirements-expanded.lock)、[Node 清单](../benchmarks/koishi/package.json) 与 [Node 锁文件](../benchmarks/koishi/package-lock.json) 固定依赖。Python 锁文件仍包含此前 Entari 等依赖，本轮不导入它们。")
-    add("\n复用此前搭建的 `.build-cache/expanded-python-env` 和 `.build-cache/expanded-node-env`。环境重建方法见 [六框架报告](archive/FRAMEWORK_COMPARISON_EXPANDED.md#复测)。[共享 HTTP 服务](../benchmarks/representative/server.py) 由协调器自动启动与清理。在项目根目录执行：\n\n```powershell\n.\\.build-cache\\expanded-python-env\\Scripts\\python.exe -B -m benchmarks.representative.run --server-python .venv/Scripts/python.exe\n$env:MPLCONFIGDIR = Join-Path (Get-Location) '.build-cache/matplotlib'\n.\\.venv\\Scripts\\python.exe -B -m benchmarks.representative.plot\n.\\.venv\\Scripts\\python.exe -B -m benchmarks.representative.report\n```")
+    add("\n- [原始 JSON](../.build-cache/benchmarks/representative/results.json)：全部采样、最小/最大值、计数核验、测试进程初始化时间、原生并发状态和来源指纹。\n- [测量入口](../benchmarks/representative/run.py)、[工作负载](../benchmarks/representative/cases.py)、[Python 原生路径](../benchmarks/representative/engines.py)、[Python worker](../benchmarks/representative/worker.py)、[Koishi worker](../benchmarks/representative/koishi.cjs)。\n- [结果校验](../benchmarks/representative/validate.py) 独立核对事件/字符/处理器/规则/HTTP/指标计数、分位值顺序、接纳状态和汇总值。\n- [绘图](../benchmarks/representative/plot.py)、[报告生成](../benchmarks/representative/report.py) 只读结果，不重新采样。\n- [Python 锁文件](../benchmarks/requirements-expanded.lock)、[Node 清单](../benchmarks/koishi/package.json) 与 [Node 锁文件](../benchmarks/koishi/package-lock.json) 固定依赖。Python 锁文件仍包含此前 Entari 等依赖，本轮不导入它们。")
+    add("\n独立 Python/Node 环境的准备和新采样命令见 [基准指南](development/benchmarks.md#框架消息路径复测)。[共享 HTTP 服务](../benchmarks/representative/server.py) 由协调器自动启动与清理。采样、绘图与报告使用同一 JSON，并显式选择新的输出路径。")
     add("\n`--events`、`--warmup`、`--repeats` 可调整；`--output` 将新结果保存到其他位置，图表和报告分别通过 `--input` 指定该文件。`--resume` 只在来源、依赖锁与方法均一致时跳过已完成的轮次，复测仍应保持解释器及已安装依赖与记录版本一致；结果校验会拒绝混用 Python/Node 版本或包版本的数据。协调进程需要 psutil，HTTP 服务解释器需要 aiohttp；本轮服务使用 Python 3.14.4。其他系统需通过 `--python`、`--node`、`--node-env` 指定可用路径，报告结论仍以本轮 Windows 数据为准。")
     add(f"\nTiffany 来源 SHA-256：`{data['environment']['tiffany_source_sha256']}`。测量代码 SHA-256：`{data['environment']['benchmark_sha256']}`。[源码边界](../benchmarks/representative/sources.py) 包含 core、adapters、clients、deployment、shared、fields.py 和 settings.py，采样前保存不可变快照，结束后再次核对工作区与测量代码；实际导入的生产模块均核验来自该快照，其路径与完整文件清单保留在 JSON。Python 依赖、Node 依赖和服务端环境也在 JSON 中记录。")
-    source_archive = f"framework-comparison-representative-{date.replace('-', '')}-sources.zip"
-    if (ROOT / "benchmarks/results/representative" / source_archive).exists():
-        add(f"\n[本轮源码与测量脚本快照](../benchmarks/results/representative/{source_archive}) 包含生产源码、测量及展示脚本、依赖清单与逐文件 SHA-256，便于保留本轮测量对象。")
-    previous = "../benchmarks/results/archive/representative-20261004-e9db8644e5ff/docs/FRAMEWORK_COMPARISON_REPRESENTATIVE.md"
-    if (destination.parent / previous).exists():
-        add(f"\n[上一轮四框架结果]({previous}) 已保留原始数据、报告与六组图件；本轮只使用当前源码的新采样。")
+    # Repository references were written relative to docs/. Generated reports
+    # may live elsewhere; figures remain beside the report in assets/performance/.
+    def repository_link(match):
+        label, target = match.groups()
+        path, marker, anchor = target.partition("#")
+        resolved = ROOT / "docs" / path
+        if path == "../.build-cache/benchmarks/representative/results.json" and source_path is not None:
+            resolved = source_path
+        relative = Path(os.path.relpath(resolved.resolve(), destination.parent.resolve())).as_posix()
+        return f"[{label}]({relative}{marker}{anchor})"
+
+    content = re.sub(r"\[([^\]\n]+)\]\(((?:\.\./(?:benchmarks/|\.build-cache/)|development/)[^)\n]+)\)", repository_link, "\n".join(lines))
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    destination.write_text(content + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, default=ROOT / "benchmarks/results/representative/framework-comparison-representative.json")
-    parser.add_argument("--output", type=Path, default=ROOT / "docs/FRAMEWORK_COMPARISON_REPRESENTATIVE.md")
+    parser.add_argument("--input", type=Path, default=ROOT / ".build-cache/benchmarks/representative/results.json")
+    parser.add_argument("--output", type=Path, default=ROOT / ".build-cache/benchmarks/representative/report.md")
     args = parser.parse_args()
-    write_report(json.loads(args.input.read_text(encoding="utf-8")), args.output)
+    write_report(json.loads(args.input.read_text(encoding="utf-8")), args.output, source_path=args.input)

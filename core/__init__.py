@@ -1,6 +1,6 @@
 """Tiffany 的公共 API，按入口、事件、注册、运行和观测职责组织。
 
-源码分类见 docs/CODE_MAP.md，建议从 Bot、Envelope 和 Context 开始阅读。
+源码分类见 docs/development/code-map.md，建议从 Bot、Envelope 和 Context 开始阅读。
 """
 
 # 1. 开发入口：注册功能、划定资源归属。

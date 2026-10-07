@@ -434,7 +434,7 @@ def render(data, folder):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, default=ROOT / "benchmarks/results/representative/framework-comparison-representative.json")
-    parser.add_argument("--output", type=Path, default=ROOT / "docs/assets/performance")
+    parser.add_argument("--input", type=Path, default=ROOT / ".build-cache/benchmarks/representative/results.json")
+    parser.add_argument("--output", type=Path, default=ROOT / ".build-cache/benchmarks/representative/assets/performance")
     args = parser.parse_args()
     render(json.loads(args.input.read_text(encoding="utf-8")), args.output)

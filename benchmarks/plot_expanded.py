@@ -96,8 +96,8 @@ def render(data, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, default=ROOT / "benchmarks/results/archive/comparison/framework-comparison-expanded.json")
-    parser.add_argument("--output", type=Path, default=ROOT / "docs/assets/performance/framework-comparison-expanded")
+    parser.add_argument("--input", type=Path, default=ROOT / ".build-cache/benchmarks/comparison/framework-comparison-expanded.json")
+    parser.add_argument("--output", type=Path, default=ROOT / ".build-cache/benchmarks/comparison/framework-comparison-expanded")
     args = parser.parse_args()
     render(json.loads(args.input.read_text(encoding="utf-8")), args.output)
 

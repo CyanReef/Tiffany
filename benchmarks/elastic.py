@@ -511,7 +511,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', type=Path, default=ROOT)
     parser.add_argument('--baseline', type=Path, default=ROOT / '.build-cache/elastic/before')
-    parser.add_argument('--output', type=Path, default=ROOT / 'benchmarks/results/archive/elastic-development/tiffany-elastic-normal.json')
+    parser.add_argument('--output', type=Path, default=ROOT / '.build-cache/benchmarks/elastic/results.json')
     parser.add_argument('--suite', choices=('normal', 'http'), default='normal')
     parser.add_argument('--repeats', type=int, default=7)
     parser.add_argument('--resume', type=Path, help='Extend a completed run with identical sources and measurement settings.')

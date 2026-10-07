@@ -377,7 +377,7 @@ def main():
     parser.add_argument("--events", type=positive_integer, default=1000)
     parser.add_argument("--warmup", type=positive_integer, default=100)
     parser.add_argument("--repeats", type=positive_integer, default=5)
-    parser.add_argument("--output", type=Path, default=ROOT / "benchmarks/results/archive/comparison/framework-comparison.json")
+    parser.add_argument("--output", type=Path, default=ROOT / ".build-cache/benchmarks/comparison/framework-comparison.json")
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--framework", choices=FRAMEWORKS, help=argparse.SUPPRESS)
     parser.add_argument("--round", type=int, default=0, help=argparse.SUPPRESS)

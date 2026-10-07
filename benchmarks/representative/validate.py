@@ -86,6 +86,6 @@ def validate(data):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, default=ROOT / "benchmarks/results/representative/framework-comparison-representative.json")
+    parser.add_argument("--input", type=Path, default=ROOT / ".build-cache/benchmarks/representative/results.json")
     args = parser.parse_args()
     print(json.dumps(validate(json.loads(args.input.read_text(encoding="utf-8"))), indent=2))
