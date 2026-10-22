@@ -25,7 +25,9 @@ class ReleaseTests(unittest.TestCase):
             paths = RuntimePaths.resolve(target / "data")
             paths.initialize()
             protected = {paths.config: b"config", paths.credentials: b"secret",
-                         paths.storage / "business.db": b"business", paths.logs / "tiffany.log": b"history\n"}
+                         paths.storage / "business.db": b"business", paths.logs / "tiffany.log": b"history\n",
+                         paths.plugin_settings: b'disabled = ["example"]\n',
+                         paths.plugins / "source-marker.py": b"plugin source\n"}
             for path, content in protected.items():
                 path.write_bytes(content)
             archive = build_release(source, root / "update.zip")
@@ -51,6 +53,10 @@ class ReleaseTests(unittest.TestCase):
                 self.assertIn("Tiffany/deployment/launcher.py", archive.namelist())
                 self.assertIn("Tiffany/start.bat", archive.namelist())
                 self.assertIn("Tiffany/start.ps1", archive.namelist())
+                self.assertIn("Tiffany/shared/plugins.py", archive.namelist())
+                self.assertIn("Tiffany/deployment/plugin_environment.py", archive.namelist())
+                self.assertIn("Tiffany/examples/plugins/echo/pyproject.toml", archive.namelist())
+                self.assertIn("Tiffany/examples/plugins/echo/src/tiffany_echo/__init__.py", archive.namelist())
                 self.assertIn("Tiffany/LICENSE", archive.namelist())
                 self.assertNotIn("Tiffany/LICENSE.en", archive.namelist())
                 self.assertEqual(

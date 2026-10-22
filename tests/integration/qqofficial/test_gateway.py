@@ -55,6 +55,24 @@ class QQOfficialGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.peer.auth_payloads[0]["d"]["intents"], 1 << 25)
         self.assertEqual(self.peer.auth_payloads[0]["d"]["shard"], [0, 1])
 
+    async def test_configured_channel_intents_and_channel_ping_use_the_same_hook(self):
+        self.adapter.intents |= (1 << 30) | (1 << 12)
+        register_hooks(self.bot)
+        await self.bot.start()
+        ws = await self.connection()
+        for seq, event, channel, guild in ((2, "AT_MESSAGE_CREATE", "channel", "guild"),
+                                            (3, "DIRECT_MESSAGE_CREATE", "dm-channel", "dm-guild")):
+            await ws.send_json({"op": 0, "s": seq, "t": event, "d": {
+                "id": f"message-{seq}", "author": {"id": "user"}, "channel_id": channel,
+                "guild_id": guild, "content": "<@!bot-user> ping" if seq == 2 else "ping",
+            }})
+        await eventually(lambda: len(self.peer.api_calls) == 2 and self.bot.runtime.scheduler.idle)
+        self.assertEqual(self.peer.auth_payloads[0]["d"]["intents"], (1 << 25) | (1 << 30) | (1 << 12))
+        self.assertEqual([call[0] for call in self.peer.api_calls], ["/channels/channel/messages", "/dms/dm-guild/messages"])
+        self.assertEqual([call[1] for call in self.peer.api_calls], [
+            {"content": "pong", "msg_id": "message-2"}, {"content": "pong", "msg_id": "message-3"},
+        ])
+
     async def test_disconnect_resumes_from_admitted_sequence_and_ignores_replayed_message(self):
         seen = []
         @self.bot.hook(on="message")
@@ -238,7 +256,7 @@ class QQOfficialGatewayTests(unittest.IsolatedAsyncioTestCase):
             await eventually(lambda: self.bot.runtime.state == RuntimeState.TERMINATED)
         self.assertEqual(self.peer.token_calls, 2)
         failures = self.bot.runtime.tasks.failures
-        self.assertTrue(any(isinstance(error, QQOfficialGatewayError) for info, error in failures))
+        self.assertTrue(any(record.error_type.endswith('.QQOfficialGatewayError') for record in failures))
         self.assertIsNone(self.client._session)
 
     async def test_malformed_frames_notice_and_unknown_events_do_not_break_connection(self):

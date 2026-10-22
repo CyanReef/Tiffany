@@ -18,7 +18,10 @@ from websockets.exceptions import ConnectionClosed, InvalidStatus
 from clients.QQOfficialClient import QQOfficialAPIError, QQOfficialClient, QQOfficialTransportError
 from core import Envelope, RuntimeNotRunningError, RuntimeState
 
-from .qqofficial_fields import MESSAGE_EVENTS, detect_event_kind, event_data, register_qqofficial_fields
+from .qqofficial_fields import (
+    MESSAGE_EVENTS, detect_event_kind, event_data, event_id, event_target,
+    register_qqofficial_fields,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -45,6 +48,7 @@ class QQOfficialWebSocketAdapter:
         max_inflight: int = 16,
         adapter_id: str | None = None, client: QQOfficialClient | None = None,
         dedup_limit: int = 4096, dedup_ttl: float = 3600.0,
+        intents: int = INTENTS,
     ):
         if not isinstance(platform, str) or not platform:
             raise ValueError("platform must be a non-empty string")
@@ -53,6 +57,8 @@ class QQOfficialWebSocketAdapter:
         if (type(dedup_limit) is not int or dedup_limit < 1
                 or not math.isfinite(dedup_ttl) or dedup_ttl <= 0):
             raise ValueError("dedup_limit and dedup_ttl must be positive")
+        if type(intents) is not int or not 0 <= intents < 1 << 32:
+            raise ValueError("QQ intents must be a 32-bit unsigned integer")
         self.client = client or QQOfficialClient(
             app_id, app_secret, sandbox=sandbox, call_timeout=call_timeout, max_inflight=max_inflight,
         )
@@ -64,6 +70,7 @@ class QQOfficialWebSocketAdapter:
         self.workers = workers
         self.dedup_limit = dedup_limit
         self.dedup_ttl = dedup_ttl
+        self.intents = intents
         self.runtime: Any = None
         self.self_id: str | None = None
         self._session_id: str | None = None
@@ -234,7 +241,7 @@ class QQOfficialWebSocketAdapter:
                 if self._session_id is not None:
                     auth = {"op": 6, "d": {"token": f"QQBot {token}", "session_id": self._session_id, "seq": self._admitted_seq}}
                 else:
-                    auth = {"op": 2, "d": {"token": f"QQBot {token}", "intents": self.INTENTS, "shard": [0, 1]}}
+                    auth = {"op": 2, "d": {"token": f"QQBot {token}", "intents": self.intents, "shard": [0, 1]}}
                 await self._send(ws, auth)
                 self._heartbeat_task = self.runtime.tasks.spawn(
                     self._heartbeat(ws, interval / 1000), name=f"{self.adapter_id}:heartbeat",
@@ -347,25 +354,29 @@ class QQOfficialWebSocketAdapter:
             else:
                 await self._admit(raw, admission_bytes=admission_bytes)
 
-    def _message_key(self, raw: dict[str, Any]) -> tuple[str, str, str] | None:
-        scene = MESSAGE_EVENTS.get(raw.get("t"))
+    def _dedup_key(self, raw: dict[str, Any], scene: str | None, target: str | None) -> tuple[str, str, str] | None:
         data = event_data(raw)
-        author = data.get("author")
-        if scene == "group":
-            target = data.get("group_openid")
-        elif scene == "private" and isinstance(author, dict):
-            target = author.get("user_openid")
-        else:
-            target = None
         message_id = data.get("id")
-        if scene and isinstance(target, str) and target and isinstance(message_id, str) and message_id:
+        if raw.get("t") in MESSAGE_EVENTS and scene and target and isinstance(message_id, str) and message_id:
+            # Prefer the platform's message index when provided on deliveries.
+            message_scene = data.get("message_scene")
+            ext = message_scene.get("ext") if isinstance(message_scene, dict) else None
+            if isinstance(ext, list):
+                for item in ext:
+                    if isinstance(item, str) and item.startswith("msg_idx=") and len(item) > 8:
+                        message_id = item
+                        break
             return scene, target, message_id
+        identifier = event_id(raw)
+        if identifier and raw.get("t") not in MESSAGE_EVENTS:
+            return raw["t"], target or "", identifier
         return None
 
     async def _admit(self, raw: dict[str, Any], *, admission_bytes: int | None = None) -> None:
         if self._stop.is_set() or self.runtime.state != RuntimeState.RUNNING:
             raise _Reconnect()
-        key = self._message_key(raw)
+        scene, target = event_target(raw)
+        key = self._dedup_key(raw, scene, target)
         now = time.monotonic()
         while self._seen and next(iter(self._seen.values())) <= now:
             self._seen.popitem(last=False)
@@ -373,14 +384,12 @@ class QQOfficialWebSocketAdapter:
             self._admitted_seq = self._received_seq
             self.runtime.metrics.inc("qqofficial_duplicates_total", labels={"platform": self.platform, "adapter": self.adapter_id})
             return
-        scene = key[0] if key is not None else None
-        target = key[1] if key is not None else None
-        event_id = raw.get("id") or event_data(raw).get("id")
-        metadata = {"event_id": event_id} if isinstance(event_id, str) and event_id else {}
+        identifier = event_id(raw) or event_data(raw).get("id")
+        metadata = {"event_id": identifier} if isinstance(identifier, str) and identifier else {}
         envelope = Envelope(
             self.platform, raw, client=self.client, kind=detect_event_kind(raw),
             adapter_id=self.adapter_id, connection_id=f"{self.adapter_id}:{self._generation}",
-            session_id=f"{self.app_id}:{scene}:{target}" if key is not None else None,
+            session_id=f"{self.app_id}:{scene}:{target}" if scene and target else None,
             admission_bytes=admission_bytes, **metadata,
         )
         try:

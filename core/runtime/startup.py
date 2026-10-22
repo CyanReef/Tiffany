@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextvars import copy_context
 from typing import Any, TYPE_CHECKING
 
 from ..Lifecycle import LifecycleError, RuntimeState, ShutdownReport
@@ -17,6 +18,9 @@ async def setup(runtime: Runtime) -> None:
         if runtime.state != RuntimeState.NEW or runtime._failed_start:
             raise LifecycleError(f"runtime cannot setup from {runtime.state.value!r}")
         runtime.state = RuntimeState.SETTING_UP
+        if runtime._lifecycle_context is None:
+            runtime._lifecycle_context = copy_context()
+        runtime._startup_deadline = asyncio.get_running_loop().time() + runtime.STARTUP_TIMEOUT
         try:
             services = [handle.component for handle in runtime.bot.services.lifecycle_order()]
             runtime._service_order = services
@@ -27,16 +31,10 @@ async def setup(runtime: Runtime) -> None:
                     continue
                 component_ids.add(id(component))
                 components.append(component)
-            async with asyncio.timeout(runtime.STARTUP_TIMEOUT):
-                for component in components:
-                    await runtime._call_startup(
-                        component,
-                        "setup",
-                        runtime.SETUP_TIMEOUT,
-                        runtime,
-                    )
-                    runtime._setup_components.append(component)
-                    runtime._setup_ids.add(id(component))
+            for component in components:
+                await runtime._call_startup(
+                    component, "setup", runtime.SETUP_TIMEOUT, runtime,
+                )
             # Adapter setup may install protocol-owned synchronous
             # providers. Freeze and validate only after every component
             # has declared its capabilities, before any I/O starts.
@@ -47,6 +45,8 @@ async def setup(runtime: Runtime) -> None:
             runtime._failed_start = True
             await runtime._rollback_startup()
             raise
+        finally:
+            runtime._startup_deadline = None
 
 
 async def start(runtime: Runtime) -> None:
@@ -58,43 +58,26 @@ async def start(runtime: Runtime) -> None:
         if runtime.state != RuntimeState.SETUP or runtime._failed_start:
             raise LifecycleError(f"runtime cannot start from {runtime.state.value!r}")
         runtime.state = RuntimeState.STARTING
+        runtime._startup_deadline = asyncio.get_running_loop().time() + runtime.STARTUP_TIMEOUT
         try:
             runtime.bot.services.validate()
             runtime.bot._validate_registrations()
-            async with asyncio.timeout(runtime.STARTUP_TIMEOUT):
-                for component in runtime._service_order:
-                    if id(component) in runtime._started_service_ids:
-                        continue
-                    await runtime._call_startup(
-                        component,
-                        "start",
-                        runtime.START_TIMEOUT,
-                    )
-                    runtime._started_services.append(component)
-                    runtime._started_service_ids.add(id(component))
-                for registration in runtime._lifespans:
-                    await runtime._call_startup(
-                        registration.manager,
-                        "__aenter__",
-                        runtime.LIFESPAN_TIMEOUT,
-                    )
-                    runtime._entered_lifespans.append(registration)
-                for adapter in runtime._adapters:
-                    if id(adapter) in runtime._started_adapter_ids:
-                        continue
-                    await runtime._call_startup(
-                        adapter,
-                        "start",
-                        runtime.START_TIMEOUT,
-                    )
-                    runtime._started_adapters.append(adapter)
-                    runtime._started_adapter_ids.add(id(adapter))
-            runtime.scheduler.start()
+            for component in runtime._service_order:
+                if id(component) not in runtime._started_service_ids:
+                    await runtime._call_startup(component, "start", runtime.START_TIMEOUT)
+            for registration in runtime._lifespans:
+                await runtime._call_startup(registration.manager, "__aenter__", runtime.LIFESPAN_TIMEOUT)
+            for adapter in runtime._adapters:
+                if id(adapter) not in runtime._started_adapter_ids:
+                    await runtime._call_startup(adapter, "start", runtime.START_TIMEOUT)
+            runtime._lifecycle_context.run(runtime.scheduler.start)
             runtime.state = RuntimeState.RUNNING
         except BaseException:
             runtime._failed_start = True
             await runtime._rollback_startup()
             raise
+        finally:
+            runtime._startup_deadline = None
 
 
 async def _rollback_startup(runtime: Runtime) -> None:
@@ -104,6 +87,23 @@ async def _rollback_startup(runtime: Runtime) -> None:
     deadline = asyncio.get_running_loop().time() + runtime.ABORT_TIMEOUT
     runtime.scheduler.stop_admission()
     report.abandoned_tasks = await runtime.scheduler.abort(runtime.CANCEL_GRACE)
+    pending = {task: component for task, component in runtime._startup_pending.items() if not task.done()}
+    if pending:
+        # Keep the whole acquisition transaction alive while startup code may
+        # still access its dependencies. A later stop can retry after settlement.
+        runtime._startup_retry = True
+        report.abandoned_tasks = tuple(dict.fromkeys((*report.abandoned_tasks,
+                                                     *(task.get_name() for task in pending))))
+        from .components import _component_name
+        report.abandoned_components = tuple(dict.fromkeys(
+            _component_name(component) for component in
+            (*runtime._setup_components,
+             *(registration.manager for registration in runtime._entered_lifespans),
+             *pending.values())
+        ))
+        runtime.state = RuntimeState.STOP_FAILED
+        runtime._closed.set()
+        return
     for component in reversed(runtime._started_adapters):
         await runtime._cleanup(component, "stop", "abort", report, deadline)
     for registration in reversed(runtime._entered_lifespans):
@@ -128,5 +128,6 @@ async def _rollback_startup(runtime: Runtime) -> None:
     abandoned = await runtime.tasks.close(runtime.CANCEL_GRACE)
     if abandoned:
         report.abandoned_tasks = abandoned
+    runtime._startup_retry = False
     runtime.state = RuntimeState.STOP_FAILED
     runtime._closed.set()

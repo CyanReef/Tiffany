@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tiffany-plugin-echo-example"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["tiffany-hook-runtime>=0.1,<0.2"]
+
+[project.entry-points."tiffany.plugins"]
+echo = "tiffany_echo:install"
+
+[tool.tiffany.plugin]
+api = 1
+requires = []
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -15,7 +15,10 @@ from deployment.credentials import CredentialStore
 from deployment.locking import InstanceLock
 from deployment.logging import setup_logging
 from deployment.paths import RuntimePaths
-from hooks import register_hooks
+from hooks import install_extensions, register_hooks
+from hooks.plugins import install_plugins
+from shared.plugins import discover_plugins
+from deployment.plugin_environment import verify_prepared
 from settings import AppConfig, load_config
 
 logger = logging.getLogger(__name__)
@@ -66,8 +69,15 @@ class TiffanyApplication:
 
     @staticmethod
     async def _run(paths: RuntimePaths, config: AppConfig) -> int:
+        plan = discover_plugins(paths)
+        verify_prepared(paths, plan)
         bot = TiffanyApplication._create_bot(config.scheduler)
         bot.service(APP_PATHS, paths)
+        if config.extensions is None:
+            register_hooks(bot)
+        else:
+            await install_extensions(bot, config.extensions)
+        plugins = await install_plugins(bot, paths, plan)
         adapter = bot.install(create_adapter(config.adapter, credential_resolver=CredentialStore(paths).resolve))
         monitor = config.monitoring
         bot.service(MONITORING, OpenMetricsExporter(
@@ -114,10 +124,18 @@ class TiffanyApplication:
             await runner
         except asyncio.CancelledError:
             if not stop_count:
-                raise
+                plugin_failure = plugins.startup_failure(bot.runtime)
+                if plugin_failure is None:
+                    raise
+                logger.error("%s", plugin_failure)
+                code = 2
         except Exception as error:
             logger.error("运行失败 (%s)：%s", type(error).__name__, error)
             code = failure_exit_code(error)
+            plugin_failure = plugins.startup_failure(bot.runtime)
+            if plugin_failure is not None:
+                logger.error("%s", plugin_failure)
+                code = 2
             if (code == 4 and bot.runtime.startup_failed
                     and isinstance(error, (ValueError, TypeError, LookupError))):
                 code = 2
@@ -141,7 +159,7 @@ class TiffanyApplication:
                 # supervisor can recover. Flush logs before ending the process.
                 logger.error("取消后仍有任务未结束，以清理失败退出")
                 logging.shutdown()
-                os._exit(3 if code == 3 else 5)
+                os._exit(code if code in (2, 3) else 5)
             if not report.successful and code == 0:
                 code = 5
         return code
@@ -149,5 +167,4 @@ class TiffanyApplication:
     @staticmethod
     def _create_bot(scheduler=None) -> Bot:
         bot = Bot(scheduler=scheduler)
-        register_hooks(bot)
         return bot

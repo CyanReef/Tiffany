@@ -8,7 +8,7 @@ from .Dispatcher import Dispatcher
 from .Envelope import Envelope
 from .Field import Field
 from .Hook import Handler, HookErrorPolicy, Predicate
-from .Lifecycle import RuntimeState, ShutdownIncompleteError, StopMode
+from .Lifecycle import LifecycleError, RuntimeState, ShutdownIncompleteError, StopMode
 from .Ownership import OwnerKey, same_owner
 from .Provider import ProviderContext, ProviderHandle, ProviderRegistry
 from .Runtime import Runtime
@@ -45,9 +45,13 @@ class Bot:
         self._scopes: dict[str, Scope] = {"application": self.application}
         self._validated_platforms: dict[str, tuple[int, int, int]] = {}
         self._unloading_owners: set[OwnerKey] = set()
-        self.dispatcher._on_change = self._validated_platforms.clear
-        self.providers._on_change = self._validated_platforms.clear
-        self.services._on_change = self._validated_platforms.clear
+        self.dispatcher._on_change = self._registrations_changed
+        self.providers._on_change = self._registrations_changed
+        self.services._on_change = self._registrations_changed
+
+    def _registrations_changed(self) -> None:
+        self.runtime._invalidate_snapshot()
+        self._validated_platforms.clear()
 
     @property
     def metrics(self):
@@ -219,6 +223,8 @@ class Bot:
     async def _unload(self, owner: object, *, mode: str) -> None:
         if mode not in ("drain", "abort"):
             raise ValueError("unload mode must be 'drain' or 'abort'")
+        if self.runtime._startup_retry:
+            raise LifecycleError("startup resources are retained; settle startup and call stop('abort') first")
         dependents = self._owner_dependents(owner)
         if dependents:
             raise OwnerInUseError(owner, dependents)

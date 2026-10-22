@@ -19,12 +19,20 @@ logger = logging.getLogger(__name__)
 
 def arguments(argv=None):
     parser = argparse.ArgumentParser(description="Tiffany server launcher")
-    parser.add_argument("command", nargs="?", default="run", choices=("run", "configure", "login", "check-config"))
+    parser.add_argument("command", nargs="?", default="run", choices=("run", "configure", "login", "check-config", "plugins"))
+    parser.add_argument("plugin_args", nargs="*", help="plugins list|enable ID|disable ID|sync|check|repair")
     parser.add_argument("--home", help="runtime directory (default: project/data)")
     parser.add_argument("--import-config", help="import an old TOML file; configure only")
     args = parser.parse_args(argv)
     if args.import_config and args.command != "configure":
         parser.error("--import-config requires configure")
+    if args.command == "plugins":
+        values = args.plugin_args
+        if (not values or values[0] not in ("list", "enable", "disable", "sync", "check", "repair")
+                or len(values) != (2 if values[0] in ("enable", "disable") else 1)):
+            parser.error("use plugins list|enable ID|disable ID|sync|check|repair")
+    elif args.plugin_args:
+        parser.error("unexpected arguments")
     return args
 
 
@@ -38,13 +46,18 @@ def main(argv=None) -> int:
     try:
         paths.initialize()
         with InstanceLock(paths.run / "launcher.lock"):
+            if args.command == "plugins":
+                from .plugin_commands import run_plugin_command
+                return run_plugin_command(paths, args.plugin_args[0],
+                                          args.plugin_args[1] if len(args.plugin_args) > 1 else None)
             if args.command == "run" and not paths.config.exists() and not sys.stdin.isatty():
                 entry = r".\start.bat" if sys.platform == "win32" else "bash start.sh"
                 raise ValueError(f"配置不存在。请先在交互终端执行 {entry} configure（使用相同 --home）。")
             setup_logging(paths.logs / "launcher.log", secrets=CredentialStore(paths).secrets())
             needs_config = args.command in ("configure", "login") or not paths.config.exists()
             if needs_config:
-                python = sys.executable if args.import_config else prepare_environment(paths)
+                with InstanceLock(paths.run / "application.lock"):
+                    python = sys.executable if args.import_config else prepare_environment(paths)
                 command = [str(python), "-B", "-m", "deployment.configure", "--home", str(paths.home)]
                 if args.command == "login":
                     command.append("--login")
@@ -63,7 +76,12 @@ def main(argv=None) -> int:
             if args.command == "check-config":
                 logger.info("配置及凭据完整，未连接平台：%s", paths.config)
                 return 0
-            python = prepare_environment(paths)
+            from shared.plugins import discover_plugins
+            from .plugin_environment import sync_plugins
+            with InstanceLock(paths.run / "application.lock"):
+                plan = discover_plugins(paths)
+                python = prepare_environment(paths)
+                sync_plugins(paths, python, plan)
             environment = dict(utf8_environment(), TIFFANY_HOME=str(paths.home),
                                PYTHONUNBUFFERED="1", PYTHONDONTWRITEBYTECODE="1")
             return Supervisor(config.restart).run(

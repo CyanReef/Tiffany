@@ -17,11 +17,12 @@ _HOOK_METRICS = ("hook_executions_total", "hook_duration_seconds_count", "hook_d
 
 
 class HookExecutor:
-    __slots__ = ("metrics", "trace")
+    __slots__ = ("metrics", "trace", "_completion_metrics")
 
     def __init__(self, metrics: MetricRegistry | None, trace: TraceRecorder | None) -> None:
         self.metrics = metrics if metrics is not None else MetricRegistry()
         self.trace = trace if trace is not None else TraceRecorder()
+        self._completion_metrics = None
 
     async def _execute(
         self,
@@ -38,21 +39,28 @@ class HookExecutor:
         error_type: str | None = None
         timeout_scope: asyncio.Timeout | None = None
 
-        async def invoke() -> bool:
-            nonlocal phase
-            if hook.when is not None:
-                phase = "predicate"
-                accepted = hook.when(ctx)
-                if inspect.isawaitable(accepted):
-                    accepted = await accepted
-                if not accepted:
-                    return False
-            phase = "handler"
-            await hook.handle(ctx)
-            return True
+        if hook.when is not None or hook.timeout is not None:
+            async def invoke() -> bool:
+                nonlocal phase
+                if hook.when is not None:
+                    phase = "predicate"
+                    accepted = hook.when(ctx)
+                    if inspect.isawaitable(accepted):
+                        accepted = await accepted
+                    if not accepted:
+                        return False
+                phase = "handler"
+                await hook.handle(ctx)
+                return True
 
         try:
-            if hook.timeout is None:
+            if hook.when is None and hook.timeout is None:
+                # The ordinary path needs neither a predicate wrapper nor a
+                # timeout context. Error handling, metrics and tracing below
+                # remain shared with the policy paths.
+                await hook.handle(ctx)
+                accepted = True
+            elif hook.timeout is None:
                 accepted = await invoke()
             else:
                 timeout_scope = asyncio.timeout(hook.timeout)
@@ -163,13 +171,18 @@ class HookExecutor:
         error_type: str | None,
     ) -> None:
         hook = registration.hook
-        labels = {
-            "platform": ctx.platform,
-            "hook": hook.name,
-            "reason": result,
-        }
-        bound = self.metrics._bind(_HOOK_METRICS, labels)
-        self.metrics._batch((("inc", bound, (1.0, 1.0, duration)),))
+        metrics = self.metrics
+        labels = (ctx.platform, hook.name, result)
+        cached = self._completion_metrics
+        if cached is None or cached[0] != labels or cached[1].registry is not metrics:
+            bound = metrics._bind(_HOOK_METRICS, {
+                "platform": labels[0], "hook": labels[1], "reason": labels[2],
+            })
+            # Retain only the most recent immutable keys, never event data.
+            self._completion_metrics = (labels, bound)
+        else:
+            bound = cached[1]
+        metrics._batch((("inc", bound, (1.0, 1.0, duration)),))
         if not self.trace.enabled:
             return
         self._record_trace(

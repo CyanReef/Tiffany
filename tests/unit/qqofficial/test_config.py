@@ -64,11 +64,23 @@ class QQOfficialConfigurationTests(unittest.TestCase):
         self.assertNotIn("test-secret", repr(config))
 
     def test_invalid_protocol_options_are_rejected(self):
-        for options in ({"workers": 0}, {"workers": True}, {"max_inflight": 0}, {"call_timeout": float("inf")}, {"sandbox": "false"}, {"app_id": 123}):
+        for options in ({"workers": 0}, {"workers": True}, {"max_inflight": 0}, {"call_timeout": float("inf")}, {"sandbox": "false"}, {"app_id": 123}, {"intents": True}, {"intents": -1}, {"intents": 1 << 32}):
             with self.subTest(options=options), self.assertRaises(ValueError):
                 QQOfficialConfig(**({"app_id": "app"} | options))
         with self.assertRaisesRegex(ValueError, "requires"):
             create_adapter(AdapterConfig("qqofficial_websocket", "qq_official"))
+
+    @unittest.skipUnless(importlib.util.find_spec("aiohttp"), "requires qqofficial extra")
+    def test_configurable_intents_round_trip_and_factory(self):
+        from deployment.configure import encode_config
+        config = load_config("examples/Tiffany.qqofficial.toml")
+        self.assertEqual(config.adapter.qqofficial.intents, 1 << 25)
+        data = asdict(config)
+        data["adapter"]["qqofficial"]["intents"] |= (1 << 26) | (1 << 30) | (1 << 12)
+        parsed = parse_config(tomllib.loads(encode_config(data).decode()))
+        with patch.dict(os.environ, {"TIFFANY_QQBOT_SECRET": "test-secret"}):
+            adapter = create_adapter(parsed.adapter)
+        self.assertEqual(adapter.intents, data["adapter"]["qqofficial"]["intents"])
 
     def test_base_imports_and_onebot_factory_do_not_import_aiohttp(self):
         code = """

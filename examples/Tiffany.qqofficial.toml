@@ -13,6 +13,9 @@ app_secret_env = "TIFFANY_QQBOT_SECRET"
 sandbox = false
 max_inflight = 16
 call_timeout = 30.0
+# Default: GROUP_AND_C2C_EVENT. OR with 67108864 for interactions,
+# 1073741824 for channel @ messages, 4096 for channel direct messages.
+intents = 33554432
 
 [logging]
 level = "INFO"
@@ -36,3 +39,10 @@ stop_timeout = 45.0
 max_events = 8192
 buffer_budget_bytes = 67108864
 max_concurrency = 64
+
+# Optional business extensions (restart to apply).
+# See docs/guides/extensions.md for policies, notes and performance acceptance.
+# [extensions]
+# enabled = ["commands", "ping", "help"]
+# [extensions.commands]
+# prefix = "/"

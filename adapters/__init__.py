@@ -47,6 +47,7 @@ def create_adapter(
             qqofficial.app_id, secret, config.platform,
             sandbox=qqofficial.sandbox, workers=qqofficial.workers, max_inflight=qqofficial.max_inflight,
             call_timeout=qqofficial.call_timeout,
+            intents=qqofficial.intents,
         )
 
     raise ValueError(f"unknown adapter type: {config.type}")

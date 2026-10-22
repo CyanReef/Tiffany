@@ -19,7 +19,23 @@ async def stop(runtime: Runtime, mode: StopMode = "drain") -> ShutdownReport:
         if runtime.state == RuntimeState.STOPPING_DRAIN:
             runtime.scheduler.request_abort()
     if runtime.state in (RuntimeState.TERMINATED, RuntimeState.STOP_FAILED):
-        return runtime.shutdown_report or ShutdownReport()
+        if not (mode == "abort" and runtime._startup_retry
+                and not any(not task.done() for task in runtime._startup_pending)):
+            return runtime.shutdown_report or ShutdownReport()
+        task = runtime._close_task
+        if task is None or task.done():
+            async def retry_startup_cleanup():
+                async with runtime._start_lock:
+                    runtime._closed.clear()
+                    try:
+                        await runtime._rollback_startup()
+                        return runtime.shutdown_report
+                    finally:
+                        runtime._closed.set()
+            task = runtime.tasks.spawn(retry_startup_cleanup(), name="runtime:retry-startup-cleanup",
+                                       owner="runtime-close", critical=False)
+            runtime._close_task = task
+        return await asyncio.shield(task)
     task = runtime._close_task
     if task is None:
         task = runtime.tasks.spawn(
@@ -37,6 +53,11 @@ async def _close(runtime: Runtime) -> ShutdownReport:
         # A critical task may fail during adapter.start(). Let the startup
         # transaction finish or roll back before releasing its resources.
         async with runtime._start_lock:
+            if (runtime.state == RuntimeState.STOP_FAILED and runtime._startup_retry
+                    and not any(not task.done() for task in runtime._startup_pending)):
+                runtime._closed.clear()
+                await runtime._rollback_startup()
+                return runtime.shutdown_report
             return await runtime._close_impl()
     except BaseException as error:
         report = runtime.shutdown_report or ShutdownReport(forced=True)

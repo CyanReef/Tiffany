@@ -18,6 +18,9 @@ class EnvironmentTests(unittest.TestCase):
         self.paths.initialize()
         self.lock = Path(self.temporary.name) / "server.lock"
         self.lock.write_text("version-one")
+        package_patch = patch("deployment.environment.run_package_command", return_value="")
+        self.package = package_patch.start()
+        self.addCleanup(package_patch.stop)
 
     def fake_create(self, target):
         python = target / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
@@ -29,12 +32,13 @@ class EnvironmentTests(unittest.TestCase):
             with patch("deployment.environment.subprocess.run", return_value=subprocess.CompletedProcess([], 0)) as run:
                 first = prepare_environment(self.paths, self.lock)
                 self.assertTrue((first.parent.parent / ".tiffany-ready.json").exists())
-                self.assertEqual(run.call_count, 2)
-                self.assertIn("--require-hashes", run.call_args_list[0].args[0])
+                self.assertEqual(run.call_count, 1)
+                self.assertIn("--require-hashes", self.package.call_args.args[0])
                 run.reset_mock()
                 self.assertEqual(prepare_environment(self.paths, self.lock), first)
                 self.assertEqual(run.call_count, 1)
                 self.assertNotIn("pip", run.call_args.args[0])
+                self.assertEqual(self.package.call_count, 2)
                 self.lock.write_text("version-two")
                 second = prepare_environment(self.paths, self.lock)
                 self.assertNotEqual(first, second)
@@ -45,7 +49,7 @@ class EnvironmentTests(unittest.TestCase):
 
     def test_install_failure_never_marks_environment_ready_and_retry_succeeds(self):
         with patch("deployment.environment.venv.EnvBuilder.create", side_effect=self.fake_create):
-            with patch("deployment.environment.subprocess.run", side_effect=subprocess.CalledProcessError(1, "pip")):
+            with patch("deployment.environment.run_package_command", side_effect=ValueError("pip failed")):
                 with self.assertRaises(ValueError):
                     prepare_environment(self.paths, self.lock)
             self.assertEqual(list(self.paths.envs.glob("*/.tiffany-ready.json")), [])

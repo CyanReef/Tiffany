@@ -19,7 +19,7 @@ def resolve_home(home: str | Path | None = None) -> Path:
 
 def initialize_layout(paths: RuntimePaths) -> None:
     paths.home.mkdir(parents=True, exist_ok=True, mode=0o700)
-    for name in ("config", "secrets", "logs", "storage", "cache", "backups", "envs", "run"):
+    for name in ("config", "secrets", "logs", "storage", "cache", "backups", "envs", "run", "plugins"):
         (paths.home / name).mkdir(exist_ok=True, mode=0o700)
     if os.name == "posix":
         paths.secrets.chmod(0o700)

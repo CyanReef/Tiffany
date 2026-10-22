@@ -32,5 +32,5 @@ Repository = "https://github.com/CyanReef/Tiffany"
 Issues = "https://github.com/CyanReef/Tiffany/issues"
 
 [tool.setuptools]
-packages = ["adapters", "clients", "core", "core.dispatch", "core.runtime", "hooks", "deployment", "shared"]
+packages = ["adapters", "clients", "core", "core.dispatch", "core.runtime", "hooks", "hooks.extensions", "deployment", "shared"]
 py-modules = ["application", "fields", "main", "settings", "launcher"]

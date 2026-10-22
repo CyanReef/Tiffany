@@ -9,6 +9,8 @@ Tiffany 保留原始事件，按需读取字段，用 Hook 编写业务。这里
 | 安装项目、接入 OneBot、运行第一个 Hook | [项目 README](../README.md) |
 | Linux / Windows 启动、配置、更新与回滚 | [部署指南](guides/deployment.md) |
 | 接入 QQ 官 Bot，了解字段、恢复与回复边界 | [QQ 接入指南](guides/qqofficial.md) |
+| 配置命令、权限、限流和持久化笔记 | [业务扩展指南](guides/extensions.md) |
+| 安装本地源码插件、管理依赖和修复环境 | [插件指南](guides/plugins.md) |
 | 找到模块职责，跟踪一条消息的调用链 | [源码地图](development/code-map.md) |
 | 分阶段读代码，编写 Hook、Service 与 Scope 扩展 | [学习与开发路线](development/learning-guide.md) |
 | 运行测试，查找单元、集成和协议测试 | [测试导航](../tests/README.md) |
@@ -16,6 +18,7 @@ Tiffany 保留原始事件，按需读取字段，用 Hook 编写业务。这里
 | 理解分层、依赖、资源归属与投递边界 | [架构约束](design/architecture.md) |
 | 配置预算、同步接纳、公平调度与取消 | [调度契约](design/scheduling.md) |
 | 查看未完成的开发与实机验收事项 | [后续路线图](planning/roadmap.md) |
+| 选择配置示例或运行无账号演示 | [示例导航](../examples/README.md) |
 
 ## 目录职责
 

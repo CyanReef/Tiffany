@@ -21,24 +21,28 @@ from .storage import save_documents
 def encode_config(data: dict) -> bytes:
     """Emit the small supported TOML schema, without credentials."""
     lines = []
+    def literal(value):
+        if type(value) is bool:
+            return "true" if value else "false"
+        if isinstance(value, dict):
+            return "{ " + ", ".join(json.dumps(key) + " = " + literal(item) for key, item in value.items()) + " }"
+        if isinstance(value, (tuple, list)):
+            return "[" + ", ".join(literal(item) for item in value) + "]"
+        return json.dumps(value, ensure_ascii=False, allow_nan=False)
     def table(values, name):
         scalars = {key: value for key, value in values.items() if value is not None and not isinstance(value, dict)}
         if scalars:
             lines.append(f"[{name}]")
             for key, value in scalars.items():
-                if type(value) is bool:
-                    text = "true" if value else "false"
-                elif isinstance(value, str):
-                    text = json.dumps(value, ensure_ascii=False)
-                else:
-                    text = json.dumps(value, allow_nan=False)
+                text = literal(value)
                 lines.append(f"{key} = {text}")
             lines.append("")
         for key, value in values.items():
             if isinstance(value, dict):
                 table(value, f"{name}.{key}")
     for name, value in data.items():
-        table(value, name)
+        if value is not None:
+            table(value, name)
     payload = ("\n".join(lines) + "\n").encode("utf-8")
     parse_config(tomllib.loads(payload.decode("utf-8")))
     return payload

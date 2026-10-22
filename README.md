@@ -13,7 +13,7 @@ Python **3.11+** · **MIT** · 当前版本 **0.1.0**
 | 接入方式 | 当前支持 | 启动入口 |
 | --- | --- | --- |
 | OneBot 反向 WebSocket | 接收事件、调用 API、回复消息；默认配置适配 NapCat | `bash start.sh` 首次选择 OneBot |
-| QQ 官 Bot WebSocket | 群内 @消息、C2C 私聊的文本接收与回复；终端扫码配置 | `bash start.sh` 首次选择 QQ |
+| QQ 官 Bot WebSocket | 群聊/C2C/频道消息；Markdown、按钮、富媒体上传、撤回和 C2C 流式接口；终端扫码配置 | `bash start.sh` 首次选择 QQ |
 | 自定义事件源 | 构造 `Envelope`，经统一运行时分发给 Hook | `await bot.emit(envelope)` |
 
 内置 `ping` 回复 `pong`，OneBot 与 QQ 官 Bot 共用业务 Hook。核心也可以独立使用，用于学习或构建自己的事件处理应用。
@@ -64,11 +64,24 @@ bash start.sh
 bash start.sh login
 ```
 
-凭据与配置分离，默认保存到 `data/secrets/credentials.json`；配置指定的环境变量优先。首版使用一个账号、一个 WebSocket 连接；拿到 `READY` 后，测试群内 @机器人 `ping` 与私聊 `ping`。配置示例见 [Tiffany.qqofficial.toml](examples/Tiffany.qqofficial.toml)，协议边界见 [接入说明](docs/guides/qqofficial.md)。
+凭据与配置分离，默认保存到 `data/secrets/credentials.json`；配置指定的环境变量优先。使用一个账号、一个 WebSocket 连接；拿到 `READY` 后，测试群内 @机器人 `ping` 与私聊 `ping`。可用 `intents` 订阅获准的频道或互动事件。配置示例见 [Tiffany.qqofficial.toml](examples/Tiffany.qqofficial.toml)，消息 JSON 接口、上传和协议边界见 [接入说明](docs/guides/qqofficial.md)。
 
 更新时 Ctrl+C 并等待清理结束，覆盖程序文件后再启动，保留 `data/`。发布包通过 `python -B tools/build_release.py` 生成并验证不含数据目录。环境按锁文件隔离以支持回滚；故障限次重启、日志轮转、健康检查和完整操作见 [服务器部署文档](docs/guides/deployment.md)。
 
 实机验收步骤见 [部署说明](docs/guides/deployment.md#实机验收)，尚未完成的工作见 [路线图](docs/planning/roadmap.md)。
+
+### 4. 选择业务扩展
+
+在 `data/config/Tiffany.toml` 末尾添加以下配置，重启后启用裸文本 `ping`、`/ping` 和 `/help`：
+
+```toml
+[extensions]
+enabled = ["commands", "ping", "help"]
+```
+
+未配置 `[extensions]` 时保留旧业务；`enabled = []` 显式停用全部业务。权限、限流和 SQLite 笔记需要显式启用，配置与命令见 [业务扩展指南](docs/guides/extensions.md)。无账号体验可运行 `python -B -m examples.extensions`；其他示例见 [示例导航](examples/README.md)。
+
+第三方源码插件放入 `<home>/plugins/` 后默认启用，正常启动自动准备共享环境。使用 `start.bat plugins list` 或 `bash start.sh plugins list` 查看，`plugins disable ID` 停用；模板、pyproject 声明及修复命令见 [插件指南](docs/guides/plugins.md)。
 
 ## 写第一个 Hook
 
@@ -125,6 +138,8 @@ flowchart LR
 
 ## 进阶扩展
 
+可选业务通过 TOML 选择，命令按启动时编译的查找表执行，笔记在数据库提交成功后确认。
+
 从一个 Hook 继续增加能力，无需改变基础事件模型。
 
 | 想做什么 | 使用什么 |
@@ -159,6 +174,8 @@ python -B -m benchmarks.plot --input .build-cache/benchmarks/local.json --output
 | 了解目录职责，跟踪一条消息 | [源码地图](docs/development/code-map.md) |
 | 按阶段读代码，动手制作扩展 | [学习与开发路线](docs/development/learning-guide.md) |
 | 找到单元测试、集成测试与辅助对象 | [测试目录导航](tests/README.md) |
+| 配置扩展、学习命令与笔记的资源归属 | [业务扩展指南](docs/guides/extensions.md) |
+| 运行独立演示与查看配置示例 | [示例导航](examples/README.md) |
 | 理解 QQ 接入与协议边界 | [QQ 官 Bot 接入设计](docs/guides/qqofficial.md) |
 | 首次配置、screen、更新与回滚 | [服务器部署文档](docs/guides/deployment.md) |
 | 理解性能测试及其限制 | [基准说明](docs/development/benchmarks.md) |

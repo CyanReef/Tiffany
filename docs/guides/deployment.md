@@ -31,6 +31,8 @@ bash /opt/Tiffany/start.sh configure --import-config /path/to/old/Tiffany.toml
 
 直接运行 `python main.py` 会读取 data 中的配置并运行应用，但不准备环境或自动重启。
 
+本地插件放入 `<home>/plugins/` 后沿用同一个启动命令，首次或声明变化时自动同步共享环境。查看与修复使用 `plugins list|sync|check|repair`，启停使用 `plugins enable|disable ID`，完整声明和失败恢复见 [源码插件指南](plugins.md)。插件准备和初始化失败会停止启动。
+
 ## Windows 本机测试
 
 安装 Python 3.11+，在项目根目录打开 PowerShell 或 CMD。一行启动，第一次进入同一套配置向导：
@@ -75,7 +77,7 @@ start.bat
 
 ## 从 Windows 迁移到 Linux
 
-先停止 Windows 实例，再将程序文件和 `data/config/`、`data/secrets/`、`data/storage/` 复制到 Linux 项目内的同名位置；要保留历史日志和备份，再复制 `data/logs/`、`data/backups/`。在 Linux 安装 Python、venv、screen 后执行 `bash start.sh`，已有配置和本地凭据直接复用。
+先停止 Windows 实例，再将程序文件和 `data/plugins/`、`data/config/`、`data/secrets/`、`data/storage/` 复制到 Linux 项目内的同名位置；要保留历史日志和备份，再复制 `data/logs/`、`data/backups/`。在 Linux 安装 Python、venv、screen 后执行 `bash start.sh`，已有配置和本地凭据直接复用。外部源码路径还需复制对应项目并调整 `config/plugins.toml`。
 
 `data/envs/`、`data/cache/`、`data/run/` 可留在 Windows，它们在 Linux 重新生成。环境目录按操作系统、架构、Python 版本和锁文件哈希隔离，避免复用另一平台的环境。使用环境变量提供凭据时，需在 Linux 重新设置对应变量；配置中的监听地址也应按服务器实际环境检查。Linux 启动时会设置凭据及备份的文件权限。生产环境的信号、平台收发与持续运行仍按实机验收清单验证。
 
@@ -88,6 +90,8 @@ data/
   logs/tiffany.log          # 应用日志，追加并轮转
   logs/launcher.log         # 环境准备与监督日志
   storage/                 # 业务持久化数据
+    notes.sqlite3          # 仅启用 notes 扩展时创建
+  plugins/                 # 本地源码插件，更新程序时保留
   cache/                   # 可重建缓存、pip 缓存
   backups/                 # 每个主动修改文件最近 10 份备份
   envs/                    # 按操作系统、架构、Python 版本和锁文件哈希隔离
@@ -97,6 +101,8 @@ data/
 Linux secrets 和 backups 目录为 0700；凭据及其备份为 0600。备份可能包含旧密钥，备份整个 data 时需要保留权限。配置损坏会报错，恢复备份或修复后再启动；配置向导也不会自动覆盖损坏文件。每个文件的替换是原子的，多文件提交在普通写入错误时回滚；凭据保留旧 AppID 条目，以便两个文件替换之间发生掉电时旧配置仍能查到原凭据。业务数据迁移由业务服务负责。
 
 同一 home 只允许一个启动器和一个应用。锁由系统持有，崩溃后会自动释放；留下的锁文件不代表仍有进程，不要通过删除锁文件绕开正在运行的实例。
+
+业务启用项在 `[extensions]` 中声明，修改后重启生效，普通启动不改写已有配置。启用笔记时，更新与备份需连同 SQLite 主文件及 WAL 状态处理；停止并等待服务关闭后再备份整个 `data/`。具体容量、格式与提交确认见 [业务扩展指南](extensions.md#数据与停止)。
 
 扩展从 `APP_PATHS` 获取路径，持久内容放 storage，可重建内容放 cache：
 
@@ -166,12 +172,15 @@ screen -S tiffany bash /opt/Tiffany/start.sh
 
 自动测试覆盖配置和凭据保护、二维码模拟、环境复用和回滚、锁、核心关闭与卸载、真实 HTTP/OpenMetrics/WebSocket 鉴权及覆盖更新。Linux CI 配置 Python 3.11～3.14，执行真实子进程的信号转发、第二次停止、故障限次重启和停止截止时间测试。截止时间测试使用缩短预算验证同一机制，默认设置仍为 45 秒。
 
-发布到实际服务器前还需记录以下实机结果：
+已有用户反馈记录了既有版本本机 48 小时持续运行通过（2026-10-12）。这项证据对应当时版本；当前版本新增业务和 QQ 接口仍按实际部署环境验收，不重复将既有版本的持续运行列为未完成。
+
+部署验收记录以下实机结果，尚未完成的事项由 [路线图](../planning/roadmap.md#p0实机验收) 维护：
 
 - NapCat `ping`、临时断线及重连；drain 期间已接纳消息能完成回复。
 - QQ 真实扫码、群 @消息和 C2C 私聊 `ping`、Token 更新、断线恢复。
+- 显式启用扩展后的命令、管理员拒绝、限流、笔记重启恢复；所需频道、富媒体或互动场景按账号权限联调。
 - screen 内 Ctrl+C / SIGTERM、两次停止与 45 秒上限。
 - 覆盖更新及旧包回滚后，配置、凭据、业务文件和历史日志保持。
-- 至少 24 小时持续运行，观察内存、队列、错误、重连和日志轮转。
+- 新版本的持续运行记录注明版本、配置、实际负载、内存、队列、错误、重连和日志轮转。
 
-本地模拟和 CI 不能替代账号与 24 小时实机验收。事件队列和去重缓存仍在内存，重启重新连接，不保证跨进程补发或恰好一次处理。
+本地模拟和 CI 不能替代对应版本的真实账号与持续运行验收。事件队列和去重缓存仍在内存，重启重新连接，不保证跨进程补发或恰好一次处理。

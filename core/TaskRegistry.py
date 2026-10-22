@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+from collections import deque
 from collections.abc import Awaitable, Callable
+from contextvars import Context
 from dataclasses import dataclass
 from typing import Any, Literal, TypeVar
 
@@ -24,6 +26,18 @@ class TaskInfo:
     failure_policy: FailurePolicy
 
 
+@dataclass(frozen=True, slots=True)
+class TaskFailureRecord:
+    """Bounded diagnostic metadata; never retains a task's object graph."""
+
+    task_id: int
+    name: str
+    owner_label: str
+    critical: bool
+    failure_policy: FailurePolicy
+    error_type: str
+
+
 class TaskRegistry:
     """Owns every long-lived task created by the runtime and its components."""
 
@@ -35,15 +49,20 @@ class TaskRegistry:
         "_failure_handler",
         "_failures",
         "_expected_cancellations",
+        "_failure_count",
+        "_failures_dropped",
     )
 
-    def __init__(self) -> None:
+    def __init__(self, *, failure_capacity: int = 256) -> None:
+        if type(failure_capacity) is not int or failure_capacity < 1:
+            raise ValueError("failure_capacity must be a positive integer")
         self._tasks: set[asyncio.Task[Any]] = set()
         self._info: dict[asyncio.Task[Any], TaskInfo] = {}
         self._next_id = 1
         self._closing = False
         self._failure_handler: Callable[[TaskInfo, BaseException], Any] | None = None
-        self._failures: list[tuple[TaskInfo, BaseException]] = []
+        self._failures: deque[TaskFailureRecord] = deque(maxlen=failure_capacity)
+        self._failure_count = self._failures_dropped = 0
         self._expected_cancellations: set[asyncio.Task[Any]] = set()
 
     def set_failure_handler(
@@ -60,6 +79,7 @@ class TaskRegistry:
         owner: object,
         critical: bool = True,
         failure_policy: FailurePolicy = "abort_runtime",
+        context: Context | None = None,
     ) -> asyncio.Task[T]:
         if failure_policy not in ("abort_runtime", "disable_owner"):
             if inspect.iscoroutine(awaitable):
@@ -72,7 +92,12 @@ class TaskRegistry:
 
         task_id = self._next_id
         self._next_id += 1
-        task = asyncio.create_task(awaitable, name=name)
+        try:
+            task = asyncio.create_task(awaitable, name=name, context=context)
+        except BaseException:
+            if inspect.iscoroutine(awaitable):
+                awaitable.close()
+            raise
         info = TaskInfo(task_id, name, owner, critical, failure_policy)
         self._tasks.add(task)
         self._info[task] = info
@@ -90,19 +115,18 @@ class TaskRegistry:
             if not self._closing and not expected_cancel and (
                 info.critical or info.failure_policy == "disable_owner"
             ):
-                self._report_failure(
-                    info,
-                    RuntimeError(f"task {info.name!r} cancelled unexpectedly"),
-                )
+                error = RuntimeError(f"task {info.name!r} cancelled unexpectedly")
+                self._remember_failure(info, error)
+                self._report_failure(info, error)
             return
         error = task.exception()
         if error is not None:
-            self._failures.append((info, error))
+            self._remember_failure(info, error)
             if info.critical or info.failure_policy == "disable_owner":
                 logger.error(
                     "supervised task %r owned by %r failed",
                     info.name,
-                    info.owner,
+                    _owner_label(info.owner),
                     exc_info=error,
                 )
                 self._report_failure(info, error)
@@ -110,9 +134,19 @@ class TaskRegistry:
                 logger.debug(
                     "supervised non-critical task %r owned by %r failed",
                     info.name,
-                    info.owner,
+                    _owner_label(info.owner),
                     exc_info=error,
                 )
+
+    def _remember_failure(self, info: TaskInfo, error: BaseException) -> None:
+        self._failure_count += 1
+        if len(self._failures) == self._failures.maxlen:
+            self._failures_dropped += 1
+        self._failures.append(TaskFailureRecord(
+            info.task_id, info.name[:256], _owner_label(info.owner),
+            info.critical, info.failure_policy,
+            f"{type(error).__module__}.{type(error).__qualname__}"[:256],
+        ))
 
     def _report_failure(self, info: TaskInfo, error: BaseException) -> None:
         if self._failure_handler is None:
@@ -138,8 +172,16 @@ class TaskRegistry:
         return tuple(self._info.values())
 
     @property
-    def failures(self) -> tuple[tuple[TaskInfo, BaseException], ...]:
+    def failures(self) -> tuple[TaskFailureRecord, ...]:
         return tuple(self._failures)
+
+    @property
+    def failure_count(self) -> int:
+        return self._failure_count
+
+    @property
+    def failures_dropped(self) -> int:
+        return self._failures_dropped
 
     def stacks(self) -> dict[int, tuple[Any, ...]]:
         return {
@@ -181,7 +223,6 @@ class TaskRegistry:
         else:
             pending = set()
         return tuple(task.get_name() for task in pending)
-
     async def close(self, grace: float = 1.0) -> tuple[str, ...]:
         self._closing = True
         current = asyncio.current_task()
@@ -195,3 +236,9 @@ class TaskRegistry:
             if not task.cancelled():
                 task.exception()
         return tuple(task.get_name() for task in pending)
+
+
+def _owner_label(owner: object) -> str:
+    if isinstance(owner, str):
+        return owner[:256]
+    return f"{type(owner).__module__}.{type(owner).__qualname__}"[:256]

@@ -1,5 +1,8 @@
 import asyncio
+import hashlib
 import importlib.util
+from pathlib import Path
+import tempfile
 import time
 import unittest
 
@@ -93,7 +96,7 @@ class QQOfficialHTTPTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.client._token_lock.locked())
 
     async def test_non_json_redirect_empty_and_audit_responses(self):
-        responses = [web.Response(status=502, text="upstream failed"), web.Response(status=302, headers={"Location": "/redirected"}), web.Response(status=204), web.json_response({"code": 304024, "message": "audit pending"}, status=202)]
+        responses = [web.Response(status=502, text="upstream failed"), web.Response(status=302, headers={"Location": "/redirected"}), web.Response(status=204), web.json_response({"code": 304024, "message": "audit pending"}, status=202), web.Response(status=200)]
         async def respond(request, body):
             return responses.pop(0)
         self.peer.on_api = respond
@@ -103,4 +106,118 @@ class QQOfficialHTTPTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(raised.exception.status, status)
         self.assertIsNone(await self.client.request("GET", "/response"))
         self.assertEqual((await self.client.request("GET", "/response"))["code"], 304024)
-        self.assertEqual(len(self.peer.api_calls), 4)
+        self.assertIsNone(await self.client.delete_message("private", "user", "sent-message"))
+        self.assertEqual(len(self.peer.api_calls), 5)
+
+    async def test_err_code_and_body_trace_are_preserved_and_auth_is_refreshed_once(self):
+        async def respond(request, body):
+            if request.headers["Authorization"] == "QQBot token-1":
+                return web.json_response({"err_code": 11243, "message": "expired", "trace_id": "body-trace"})
+            return web.json_response({"err_code": 40054013, "message": "user declined", "trace_id": "body-trace"})
+        self.peer.on_api = respond
+        with self.assertRaises(QQOfficialAPIError) as raised:
+            await self.client.send_message("private", "user", json={"content": "hello", "msg_type": 0})
+        self.assertEqual(raised.exception.code, 40054013)
+        self.assertEqual(raised.exception.trace_id, "body-trace")
+        self.assertEqual(self.peer.token_calls, 2)
+        self.assertEqual(len(self.peer.api_calls), 2)
+
+    async def test_local_file_upload_hashes_streams_confirms_and_merges_in_each_scene(self):
+        data = bytes(range(256)) * 550 + b"tail"
+        self.client.call_timeout = 3
+        block_size = 65536
+        count = (len(data) + block_size - 1) // block_size
+        async def respond(request, body):
+            if request.path.endswith("/upload_prepare"):
+                self.assertEqual(body, {"file_type": 4, "file_size": str(len(data)), "file_name": "sample.bin",
+                    "md5": hashlib.md5(data).hexdigest(), "sha1": hashlib.sha1(data).hexdigest(),
+                    "md5_10m": hashlib.md5(data).hexdigest()})
+                return web.json_response({"upload_id": "task", "block_size": str(block_size), "parts": [
+                    {"index": index, "presigned_url": self.peer.api_base + f"/upload/{index}"}
+                    for index in range(count)
+                ]})
+            if request.path.endswith("/upload_part_finish"):
+                index = body["part_index"]
+                part = data[index * block_size:(index + 1) * block_size]
+                self.assertEqual(body, {"upload_id": "task", "part_index": index,
+                    "block_size": str(len(part)), "md5": hashlib.md5(part).hexdigest()})
+                return web.Response(status=200)
+            self.assertTrue(request.path.endswith("/files"))
+            self.assertEqual(body, {"file_type": 4, "srv_send_msg": False, "upload_id": "task", "file_name": "sample.bin"})
+            return web.json_response({"file_info": "opaque", "ttl": 300})
+        self.peer.on_api = respond
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.bin"
+            path.write_bytes(data)
+            for scene, segment in (("group", "groups"), ("private", "users")):
+                with self.subTest(scene=scene):
+                    self.peer.upload_calls.clear()
+                    self.peer.api_calls.clear()
+                    self.assertEqual(await self.client.upload_file(scene, "target", path), {"file_info": "opaque", "ttl": 300})
+                    self.assertEqual(b"".join(call[1] for call in self.peer.upload_calls), data)
+                    self.assertTrue(all(call[2] is None and call[3] == len(call[1]) for call in self.peer.upload_calls))
+                    self.assertTrue(all(call[0].startswith(f"/v2/{segment}/target/") for call in self.peer.api_calls))
+                    self.assertTrue(all(call[2] == "QQBot token-1" for call in self.peer.api_calls))
+                    self.assertFalse(self.client._calls)
+
+    async def test_failed_part_is_not_confirmed_merged_or_automatically_resent(self):
+        async def respond(request, body):
+            return web.json_response({"upload_id": "task", "block_size": "4", "parts": [
+                {"index": 0, "presigned_url": self.peer.api_base + "/upload/0"},
+            ]})
+        async def fail(request, body):
+            return web.Response(status=503)
+        self.peer.on_api = respond
+        self.peer.on_upload = fail
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.bin"
+            path.write_bytes(b"data")
+            with self.assertRaises(QQOfficialAPIError) as raised:
+                await self.client.upload_file("private", "u", path)
+        self.assertEqual(raised.exception.status, 503)
+        self.assertEqual(len(self.peer.upload_calls), 1)
+        self.assertEqual(len(self.peer.api_calls), 1)
+        self.assertFalse(self.client._calls)
+
+    async def test_abort_keeps_entire_upload_tracked_between_requests(self):
+        from unittest.mock import AsyncMock
+        entered = asyncio.Event()
+        async def prepare(request, body):
+            return web.json_response({"upload_id": "task", "block_size": "4", "parts": [
+                {"index": 0, "presigned_url": self.peer.api_base + "/upload/0"},
+            ]})
+        async def blocked(*args, **kwargs):
+            entered.set()
+            await asyncio.Event().wait()
+        self.peer.on_api = prepare
+        self.client.put_upload_part = AsyncMock(side_effect=blocked)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.bin"
+            path.write_bytes(b"data")
+            task = asyncio.create_task(self.client.upload_file("group", "g", path))
+            await entered.wait()
+            self.assertIn(task, self.client._calls)
+            await self.client.stop("abort")
+            self.assertTrue(task.cancelled())
+        self.assertFalse(self.client._calls)
+        self.assertIsNone(self.client._session)
+
+    async def test_invalid_upload_plan_and_oversized_put_response_release_resources(self):
+        async def prepare(request, body):
+            return web.json_response({"upload_id": "task", "block_size": "0", "parts": [
+                {"index": 0, "presigned_url": self.peer.api_base + "/upload/0"},
+            ]})
+        self.peer.on_api = prepare
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.bin"
+            path.write_bytes(b"data")
+            with self.assertRaisesRegex(RuntimeError, "block_size"):
+                await self.client.upload_file("group", "g", path)
+            path.unlink()  # Windows also verifies the file handle was released.
+        self.assertEqual(self.peer.upload_calls, [])
+        async def oversized(request, body):
+            return web.Response(body=b"x" * 65537)
+        self.peer.on_upload = oversized
+        with self.assertRaisesRegex(RuntimeError, "64 KiB"):
+            await self.client.put_upload_part(self.peer.api_base + "/upload/0", b"data")
+        self.assertFalse(self.client._calls)

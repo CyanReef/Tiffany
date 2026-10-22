@@ -11,6 +11,7 @@ from collections.abc import Callable
 
 from deployment.paths import PROJECT_ROOT, RuntimePaths
 from shared.scheduler import SchedulerPolicy
+from shared.extensions import ExtensionsConfig
 
 CredentialResolver = Callable[[str, str], str | None]
 
@@ -73,6 +74,7 @@ class QQOfficialConfig:
     workers: int | None = None
     max_inflight: int = 16
     call_timeout: float = 30.0
+    intents: int = 1 << 25
 
     def __post_init__(self):
         _string(self.app_id, "adapter.qqofficial.app_id")
@@ -83,6 +85,7 @@ class QQOfficialConfig:
             _integer(self.workers, "adapter.qqofficial.workers", 1, 65536)
         _integer(self.max_inflight, "adapter.qqofficial.max_inflight", 1, 65536)
         _positive(self.call_timeout, "adapter.qqofficial.call_timeout")
+        _integer(self.intents, "adapter.qqofficial.intents", 0, (1 << 32) - 1)
 
     def get_app_secret(self, resolver: CredentialResolver | None = None) -> str:
         secret = os.environ.get(self.app_secret_env) or (resolver("qqofficial", self.app_id) if resolver else None)
@@ -167,6 +170,7 @@ class AppConfig:
     monitoring: MonitoringConfig = field(default_factory=MonitoringConfig)
     restart: RestartConfig = field(default_factory=RestartConfig)
     scheduler: SchedulerPolicy = field(default_factory=SchedulerPolicy)
+    extensions: ExtensionsConfig | None = None
 
     def validate_credentials(self, resolver: CredentialResolver | None = None) -> tuple[str, ...]:
         if self.adapter.type == "qqofficial_websocket":
@@ -197,6 +201,7 @@ def parse_config(data: dict) -> AppConfig:
             monitoring=MonitoringConfig(**data.get("monitoring", {})),
             restart=RestartConfig(**data.get("restart", {})),
             scheduler=SchedulerPolicy(**data.get("scheduler", {})),
+            extensions=ExtensionsConfig.parse(data["extensions"]) if data.get("extensions") is not None else None,
         )
     except (KeyError, TypeError) as error:
         raise ValueError(f"invalid configuration structure ({type(error).__name__})") from None

@@ -22,6 +22,22 @@ _WATERMARK = ("event_queue_watermark",)
 _RECEIVED = ("events_received_total",)
 
 
+class _StateMetrics:
+    """One adapter's immutable bindings; no exported series are preallocated."""
+
+    __slots__ = ("registry", "adapter_id", "global_queue", "queue", "global_watermark", "watermark",
+                 "received_platform", "received")
+
+    def __init__(self, registry, adapter_id):
+        self.registry, self.adapter_id = registry, adapter_id
+        labels = {"adapter": adapter_id}
+        self.global_queue = registry._bind(_QUEUE_METRICS)
+        self.queue = registry._bind(_QUEUE_METRICS, labels)
+        self.global_watermark = registry._bind(_WATERMARK)
+        self.watermark = registry._bind(_WATERMARK, labels)
+        self.received_platform = self.received = None
+
+
 class _Lane(deque):
     __slots__ = ("bytes",)
 
@@ -57,6 +73,7 @@ class EventScheduler:
         "_queued", "_active", "_bytes", "_idle", "_accepting", "_started",
         "_aborting", "_pumping", "_pump_again", "_event_context",
         "_event_work",
+        "_state_metrics",
     )
 
     def __init__(self, runtime: "Runtime", *, policy: SchedulerPolicy | None = None) -> None:
@@ -83,6 +100,7 @@ class EventScheduler:
         self._pumping = self._pump_again = False
         self._event_context: TaskContext | None = None
         self._event_work: dict[asyncio.Task[Any], _Work] = {}
+        self._state_metrics = None
 
     @property
     def global_limit(self) -> int:
@@ -456,18 +474,23 @@ class EventScheduler:
         self, adapter_id: str, *, received_platform: str | None = None,
     ) -> None:
         metrics = self.runtime.metrics
+        bound = self._state_metrics
+        if bound is None or bound.registry is not metrics or bound.adapter_id != adapter_id:
+            bound = self._state_metrics = _StateMetrics(metrics, adapter_id)
         queued = self._adapter_queued.get(adapter_id, 0)
         active = self._adapter_active.get(adapter_id, 0)
-        labels = {"adapter": adapter_id}
         updates = [
-            ("set", metrics._bind(_QUEUE_METRICS), (self._queued, self._active, self.capacity)),
-            ("set", metrics._bind(_QUEUE_METRICS, labels), (queued, active, self.capacity)),
+            ("set", bound.global_queue, (self._queued, self._active, self.capacity)),
+            ("set", bound.queue, (queued, active, self.capacity)),
         ]
         if received_platform is not None:
+            if bound.received_platform != received_platform:
+                bound.received = metrics._bind(_RECEIVED, {"platform": received_platform, "adapter": adapter_id})
+                bound.received_platform = received_platform
             updates.extend((
-                ("max", metrics._bind(_WATERMARK), (self._queued + self._active,)),
-                ("max", metrics._bind(_WATERMARK, labels), (queued + active,)),
-                ("inc", metrics._bind(_RECEIVED, {"platform": received_platform, "adapter": adapter_id}), (1.0,)),
+                ("max", bound.global_watermark, (self._queued + self._active,)),
+                ("max", bound.watermark, (queued + active,)),
+                ("inc", bound.received, (1.0,)),
             ))
         metrics._batch(tuple(updates))
 

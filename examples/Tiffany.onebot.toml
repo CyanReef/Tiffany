@@ -35,3 +35,10 @@ stop_timeout = 45.0
 max_events = 8192
 buffer_budget_bytes = 67108864
 max_concurrency = 64
+
+# Optional business extensions (restart to apply).
+# See docs/guides/extensions.md for policies, notes and performance acceptance.
+# [extensions]
+# enabled = ["commands", "ping", "help"]
+# [extensions.commands]
+# prefix = "/"

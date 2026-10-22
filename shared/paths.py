@@ -31,6 +31,14 @@ class RuntimePaths:
         return self.home / "secrets"
 
     @property
+    def plugins(self) -> Path:
+        return self.home / "plugins"
+
+    @property
+    def plugin_settings(self) -> Path:
+        return self.home / "config" / "plugins.toml"
+
+    @property
     def credentials(self) -> Path:
         return self.secrets / "credentials.json"
 

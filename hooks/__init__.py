@@ -2,13 +2,16 @@
 
 from core import Bot
 
-from .command import register_command_provider
-from .ping import register as register_ping
-
-
 def register_hooks(bot: Bot) -> None:
+    from .command import register_command_provider
+    from .ping import register as register_ping
     register_command_provider(bot)
     register_ping(bot)
 
 
-__all__ = ["register_hooks"]
+async def install_extensions(bot, config):
+    from .extensions import install_extensions as install
+    return await install(bot, config)
+
+
+__all__ = ["register_hooks", "install_extensions"]

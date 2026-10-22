@@ -10,6 +10,37 @@ from core.TaskRegistry import TaskRegistry
 
 
 class DirectSchedulerRegressions(unittest.IsolatedAsyncioTestCase):
+    async def test_metric_bindings_follow_platform_adapter_and_lru_eviction(self):
+        bot = Bot()
+        async with bot:
+            for platform, adapter in [('first', 'a'), ('second', 'a'), ('first', 'a'), ('first', 'b'), ('first', 'a')]:
+                await bot.emit(Envelope(platform, {}, adapter_id=adapter))
+            # Evict the registry's binding cache while the scheduler retains
+            # a valid binding. Exported counters must continue exactly.
+            for index in range(5000):
+                bot.metrics._bind(('unused',), {'adapter': str(index)})
+            await bot.emit(Envelope('first', {}, adapter_id='a'))
+            sample = bot.metrics.snapshot()
+            self.assertEqual(sample.get('events_received_total', {'platform': 'first', 'adapter': 'a'}), 4)
+            self.assertEqual(sample.get('events_received_total', {'platform': 'second', 'adapter': 'a'}), 1)
+            self.assertEqual(sample.get('events_received_total', {'platform': 'first', 'adapter': 'b'}), 1)
+            for adapter in ('a', 'b'):
+                self.assertEqual(sample.get('event_queue_depth', {'adapter': adapter}), 0)
+                self.assertEqual(sample.get('events_active', {'adapter': adapter}), 0)
+            self.assertEqual(sample.get('unused', {'adapter': '0'}), 0)
+
+    async def test_cached_metric_bindings_cannot_bypass_exported_series_limit(self):
+        bot = Bot()
+        registry = MetricRegistry(max_series=1)
+        bot.runtime.metrics = bot.dispatcher.metrics = registry
+        async with bot:
+            for index in range(20):
+                await bot.emit(Envelope('test', {}, adapter_id='a'))
+            self.assertEqual(len(registry.snapshot().samples), 1)
+            self.assertEqual(registry.snapshot().get('event_queue_depth'), 0)
+            self.assertGreater(registry.dropped_series, 0)
+            self.assert_settled(bot)
+
     def assert_settled(self, bot):
         scheduler = bot.runtime.scheduler
         self.assertEqual((scheduler.queued, scheduler.active), (0, 0))
@@ -227,6 +258,11 @@ class DirectSchedulerRegressions(unittest.IsolatedAsyncioTestCase):
             await release.wait()
         await bot.start()
         old = bot.metrics
+        # Populate all three caches before replacing the registry in flight.
+        release.set()
+        await bot.emit(Envelope("test", {}))
+        release.clear()
+        entered.clear()
         future = await bot.runtime.emit(Envelope("test", {}), wait=False)
         await entered.wait()
         new = MetricRegistry()
@@ -234,10 +270,76 @@ class DirectSchedulerRegressions(unittest.IsolatedAsyncioTestCase):
         release.set()
         await future
         await bot.emit(Envelope("test", {}))
-        self.assertEqual(old.snapshot().get("hook_executions_total", {"platform": "test", "hook": "tracked", "reason": "completed"}), 0)
+        self.assertEqual(old.snapshot().get("hook_executions_total", {"platform": "test", "hook": "tracked", "reason": "completed"}), 1)
         self.assertEqual(new.snapshot().get("hook_executions_total", {"platform": "test", "hook": "tracked", "reason": "completed"}), 2)
+        self.assertEqual(old.snapshot().get("event_duration_seconds_count", {"platform": "test", "adapter": "application"}), 1)
+        self.assertEqual(new.snapshot().get("event_duration_seconds_count", {"platform": "test", "adapter": "application"}), 2)
         self.assert_settled(bot)
         await bot.stop()
+
+    async def test_completion_metrics_follow_platform_hook_and_result_changes(self):
+        bot = Bot()
+        @bot.hook(name="first", when=lambda ctx: ctx.raw["mode"] != "reject", on_error="continue")
+        async def first(ctx):
+            if ctx.raw["mode"] == "error":
+                raise ValueError("expected failure")
+            if ctx.raw["mode"] == "stop":
+                ctx.stop()
+        @bot.hook(name="second")
+        async def second(ctx):
+            pass
+        await bot.start()
+        try:
+            for mode in ("ok", "reject", "stop"):
+                await bot.emit(Envelope("test", {"mode": mode}, adapter_id="a"))
+            with self.assertLogs("core.Dispatcher", level="ERROR"):
+                await bot.emit(Envelope("other", {"mode": "error"}, adapter_id="b"))
+            await bot.emit(Envelope("test", {"mode": "ok"}, adapter_id="a"))
+            snapshot = bot.metrics.snapshot()
+            for hook, platform, reason, count in (
+                ("first", "test", "completed", 2),
+                ("first", "test", "predicate_rejected", 1),
+                ("first", "test", "stopped", 1),
+                ("first", "other", "error", 1),
+                ("second", "test", "completed", 3),
+                ("second", "other", "completed", 1),
+            ):
+                labels = {"platform": platform, "hook": hook, "reason": reason}
+                self.assertEqual(snapshot.get("hook_executions_total", labels), count)
+                self.assertEqual(snapshot.get("hook_duration_seconds_count", labels), count)
+                self.assertGreater(snapshot.get("hook_duration_seconds_sum", labels), 0)
+            self.assertEqual(snapshot.get("event_duration_seconds_count", {"platform": "test", "adapter": "a"}), 4)
+            self.assertEqual(snapshot.get("event_duration_seconds_count", {"platform": "other", "adapter": "b"}), 1)
+            self.assert_settled(bot)
+        finally:
+            await bot.stop()
+
+    async def test_eviction_and_series_limit_apply_to_cached_completion_metrics(self):
+        bot = Bot()
+        @bot.hook(name="tracked")
+        async def work(ctx):
+            pass
+        await bot.start()
+        try:
+            await bot.emit(Envelope("test", {}))
+            for index in range(5000):
+                bot.metrics._bind((f"unused_{index}",))
+            await bot.emit(Envelope("test", {}))
+            snapshot = bot.metrics.snapshot()
+            labels = {"platform": "test", "hook": "tracked", "reason": "completed"}
+            self.assertEqual(snapshot.get("hook_executions_total", labels), 2)
+            self.assertEqual(snapshot.get("event_duration_seconds_count", {"platform": "test", "adapter": "application"}), 2)
+            self.assertFalse(any(sample.name.startswith("unused_") for sample in snapshot.samples))
+            new = MetricRegistry(max_series=1)
+            bot.runtime.metrics = bot.dispatcher.metrics = new
+            await bot.emit(Envelope("test", {}))
+            dropped = new.dropped_series
+            await bot.emit(Envelope("test", {}))
+            self.assertEqual(len(new.snapshot().samples), 1)
+            self.assertGreaterEqual(new.dropped_series - dropped, 5)
+            self.assert_settled(bot)
+        finally:
+            await bot.stop()
 
     async def test_task_creation_failure_rolls_back_and_closes_runtime(self):
         bot = Bot()

@@ -23,6 +23,8 @@ class QQTestServer:
         self.token_response = None
         self.token_gate = None
         self.api_calls = []
+        self.upload_calls = []
+        self.on_upload = None
         self.auth_payloads = []
         self.heartbeats = []
         self.heartbeat_interval = 40
@@ -63,6 +65,12 @@ class QQTestServer:
         return web.json_response({"url": self.gateway_url})
 
     async def _api(self, request):
+        if request.method == "PUT" and request.path.startswith("/upload/"):
+            body = await request.read()
+            self.upload_calls.append((request.path, body, request.headers.get("Authorization"), request.content_length))
+            if self.on_upload is not None:
+                return await self.on_upload(request, body)
+            return web.Response(text="<ok/>", content_type="application/xml")
         body = await request.json() if request.can_read_body else None
         self.api_calls.append((request.path, body, request.headers.get("Authorization")))
         if self.on_api is not None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from threading import RLock
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import Any
@@ -102,6 +103,13 @@ class Runtime:
         "_service_order",
         "_closed",
         "failure_cause",
+        "_snapshot_cache",
+        "_snapshot_lock",
+        "_completion_metrics",
+        "_lifecycle_context",
+        "_startup_pending",
+        "_startup_deadline",
+        "_startup_retry",
     )
 
     def __init__(self, bot: Any, *, scheduler: SchedulerPolicy | None = None) -> None:
@@ -132,6 +140,13 @@ class Runtime:
         self._service_order: list[Any] = []
         self._closed = asyncio.Event()
         self.failure_cause: BaseException | None = None
+        self._snapshot_cache: RuntimeSnapshot | None = None
+        self._snapshot_lock = RLock()
+        self._completion_metrics = None
+        self._lifecycle_context = None
+        self._startup_pending = {}
+        self._startup_deadline = None
+        self._startup_retry = False
 
     async def wait_closed(self) -> ShutdownReport:
         """Wait for cleanup (including startup rollback) to finish."""
@@ -215,12 +230,21 @@ class Runtime:
             self.bot.validate(envelope.platform)
         return self.scheduler.submit(envelope, reject=reject, background=background)
 
+    def _invalidate_snapshot(self) -> None:
+        with self._snapshot_lock:
+            self._snapshot_cache = None
+
     def _capture_event(self, envelope: Envelope):
-        snapshot = RuntimeSnapshot(
-            hooks=self.bot.dispatcher.snapshot(),
-            providers=self.bot.providers.snapshot(),
-            services=self.bot.services.snapshot(),
-        )
+        # Publish under the same lock as invalidation so a cross-thread
+        # registration cannot leave a revoked snapshot retained by the cache.
+        with self._snapshot_lock:
+            snapshot = self._snapshot_cache
+            if snapshot is None:
+                snapshot = self._snapshot_cache = RuntimeSnapshot(
+                    self.bot.dispatcher.snapshot(),
+                    self.bot.providers.snapshot(),
+                    self.bot.services.snapshot(),
+                )
         owners = self.bot.dispatcher._owners_for(
             envelope.platform, envelope.kind, snapshot.hooks
         )
@@ -287,11 +311,18 @@ class Runtime:
             return ctx
         finally:
             duration = time.perf_counter() - started
-            bound = self.metrics._bind(
-                ("event_duration_seconds_count", "event_duration_seconds_sum"),
-                {"platform": envelope.platform, "adapter": envelope.adapter_id},
-            )
-            self.metrics._batch((("inc", bound, (1.0, duration)),))
+            metrics = self.metrics
+            labels = (envelope.platform, envelope.adapter_id)
+            cached = self._completion_metrics
+            if cached is None or cached[0] != labels or cached[1].registry is not metrics:
+                bound = metrics._bind(
+                    ("event_duration_seconds_count", "event_duration_seconds_sum"),
+                    {"platform": labels[0], "adapter": labels[1]},
+                )
+                self._completion_metrics = (labels, bound)
+            else:
+                bound = cached[1]
+            metrics._batch((("inc", bound, (1.0, duration)),))
 
     async def stop(self, mode: StopMode = "drain") -> ShutdownReport:
         return await shutdown.stop(self, mode)

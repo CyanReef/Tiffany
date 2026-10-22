@@ -82,6 +82,45 @@ class QQOfficialAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.runtime.submit.call_count, 4)
         self.assertEqual(len(self.adapter._seen), 1)
 
+    async def test_full_group_and_channel_messages_have_scene_specific_dedup(self):
+        raw = message(message_id="same")
+        raw["t"] = "GROUP_MESSAGE_CREATE"
+        await self.adapter._handle(raw, self.ws)
+        await self.adapter._handle(message(seq=3, message_id="same"), self.ws)
+        self.assertEqual(self.runtime.submit.call_count, 1)
+        for event, target_key, scene in (("AT_MESSAGE_CREATE", "channel_id", "channel"),
+                                          ("DIRECT_MESSAGE_CREATE", "guild_id", "direct")):
+            await self.adapter._handle({"op": 0, "t": event, "d": {
+                "id": "same", target_key: "target", "author": {"id": "user"},
+            }}, self.ws)
+            self.assertEqual(self.runtime.submit.call_args.args[0].session_id, f"app:{scene}:target")
+            self.assertEqual(self.runtime.submit.call_args.args[0].kind, "message")
+
+    async def test_c2c_message_index_deduplicates_replay_independently_of_delivery_id(self):
+        for seq, index in ((2, "first"), (3, "second"), (4, "first")):
+            raw = message("private", seq=seq, message_id=f"delivery-{seq}")
+            raw["d"]["message_scene"] = {"ext": ["auth_token=unused", f"msg_idx={index}"]}
+            await self.adapter._handle(raw, self.ws)
+        self.assertEqual(self.runtime.submit.call_count, 2)
+        self.assertEqual(self.adapter._admitted_seq, 4)
+
+    async def test_notice_and_interaction_share_target_session_and_deduplicate_event_ids(self):
+        for event, kind in (("GROUP_ADD_ROBOT", "notice"), ("INTERACTION_CREATE", "event")):
+            raw = {"op": 0, "s": 2, "t": event, "id": event + ":outer", "d": {
+                "id": "inner", "scene": "group", "group_openid": "openid",
+            }}
+            await self.adapter._handle(raw, self.ws)
+            envelope = self.runtime.submit.call_args.args[0]
+            self.assertEqual(envelope.session_id, "app:group:openid")
+            self.assertEqual(envelope.kind, kind)
+            await self.adapter._handle(raw | {"s": 3}, self.ws)
+        self.assertEqual(self.runtime.submit.call_count, 2)
+
+    def test_invalid_intents_are_rejected_before_io(self):
+        for intents in (True, -1, 1 << 32, "33554432"):
+            with self.subTest(intents=intents), self.assertRaises(ValueError):
+                QQOfficialWebSocketAdapter("app", "secret", intents=intents)
+
     async def test_control_frames_stay_inside_adapter_and_invalid_session_clears_resume(self):
         await self.adapter._handle({"op": 0, "s": 1, "t": "READY", "d": {"session_id": "session", "user": {"id": "bot-id"}}}, self.ws)
         self.assertEqual(self.adapter.self_id, "bot-id")

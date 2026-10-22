@@ -19,32 +19,55 @@ async def _call_startup(
     timeout: float,
     *args: Any,
 ) -> None:
+    if runtime._startup_deadline is not None and asyncio.get_running_loop().time() >= runtime._startup_deadline:
+        error = ComponentStartupTimeoutError(_component_name(component), method_name, 0.0)
+        runtime.startup_results.append(StartupResult(_component_name(component), method_name,
+                                                     "timeout", 0.0, type(error).__name__, str(error)))
+        raise error
     method = getattr(component, method_name, None)
     if method is None:
+        _record_acquired(runtime, component, method_name)
         return
     started = time.perf_counter()
-    try:
-        async with asyncio.timeout(timeout):
+    loop = asyncio.get_running_loop()
+    deadline = min(loop.time() + timeout, runtime._startup_deadline or float("inf"))
+    allowed = max(0.0, deadline - loop.time())
+    finished_at = []
+
+    async def invoke_startup() -> None:
+        try:
             result = method(*args)
             if inspect.isawaitable(result):
                 await result
-    except TimeoutError as error:
-        runtime.startup_results.append(StartupResult(
-            component=_component_name(component),
-            phase=method_name,
-            outcome="timeout",
-            duration=time.perf_counter() - started,
-            error_type=type(error).__name__,
-            error_message=f"{method_name} exceeded {timeout:g} seconds",
-        ))
-        raise ComponentStartupTimeoutError(
-            _component_name(component), method_name, timeout
-        ) from error
+            # Journal inside the task: a late successful acquisition still
+            # belongs to rollback, even after its caller has timed out.
+            _record_acquired(runtime, component, method_name)
+        finally:
+            finished_at.append(loop.time())
+
+    task = runtime.tasks.spawn(
+        invoke_startup(), name=f"startup:{_component_name(component)}:{method_name}",
+        owner="runtime-startup", critical=False, context=runtime._lifecycle_context,
+    )
+    runtime._startup_pending[task] = component
+    task.add_done_callback(lambda done: runtime._startup_pending.pop(done, None))
+    timed_out = False
+    try:
+        done, _ = await asyncio.wait((task,), timeout=allowed)
+        timed_out = task not in done or bool(finished_at and finished_at[0] > deadline)
+        if timed_out:
+            raise ComponentStartupTimeoutError(_component_name(component), method_name, allowed)
+        await task
     except BaseException as error:
+        if not task.done():
+            task.cancel()
+            # asyncio.wait does not wait indefinitely for cancellation-resistant
+            # code, unlike awaiting the task or wait_for().
+            await asyncio.wait((task,), timeout=runtime.CANCEL_GRACE)
         runtime.startup_results.append(StartupResult(
             component=_component_name(component),
             phase=method_name,
-            outcome="error",
+            outcome="timeout" if timed_out else "error",
             duration=time.perf_counter() - started,
             error_type=type(error).__name__,
             error_message=_redact_error(error),
@@ -57,6 +80,22 @@ async def _call_startup(
             outcome="completed",
             duration=time.perf_counter() - started,
         ))
+
+
+def _record_acquired(runtime: Runtime, component: Any, phase: str) -> None:
+    if phase == "setup":
+        runtime._setup_components.append(component)
+        runtime._setup_ids.add(id(component))
+    elif phase == "start":
+        if any(item is component for item in runtime._adapters):
+            runtime._started_adapters.append(component)
+            runtime._started_adapter_ids.add(id(component))
+        else:
+            runtime._started_services.append(component)
+            runtime._started_service_ids.add(id(component))
+    elif phase == "__aenter__":
+        registration = next(item for item in runtime._lifespans if item.manager is component)
+        runtime._entered_lifespans.append(registration)
 
 
 async def _cleanup(
@@ -93,6 +132,7 @@ async def _cleanup(
             name=f"cleanup:{_component_name(component)}:{phase}",
             owner="runtime-cleanup",
             critical=False,
+            context=runtime._lifecycle_context,
         )
         done, _ = await asyncio.wait((task,), timeout=timeout)
         if task not in done:
