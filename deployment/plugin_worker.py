@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 from urllib.request import url2pathname
 
 from shared.plugins import GROUP, PluginError, canonical_name, discover_plugins
+from shared.installation import HostInstallation
 
 
 def inspect_installation(desired: dict) -> dict:
@@ -21,21 +22,27 @@ def inspect_installation(desired: dict) -> dict:
     package_paths = list({sysconfig.get_path("purelib"), sysconfig.get_path("platlib")})
     distributions = {canonical_name(dist.metadata["Name"]): dist
                      for dist in metadata.distributions(path=package_paths) if dist.metadata.get("Name")}
-    host = Path(desired["host"])
-    project = tomllib.loads((host / "pyproject.toml").read_text(encoding="utf-8"))["project"]
-    specs = [{"name": project["name"], "version": project["version"], "root": str(host)}, *desired["plugins"]]
+    expected = desired["host"]
+    if isinstance(expected, str):
+        expected = HostInstallation.detect(Path(expected)).identity()
+    host = {"name": expected["name"], "version": expected["version"], "root": expected.get("source")}
+    specs = [host, *desired["plugins"]]
     for spec in specs:
         try:
             dist = distributions[canonical_name(spec["name"])]
-            direct = json.loads(dist.read_text("direct_url.json") or "{}")
-            url = urlsplit(direct.get("url", ""))
-            source = Path(url2pathname(url.path))
-            if url.netloc:
-                source = Path("//" + url.netloc + str(source))
-            if (dist.version != spec["version"] or url.scheme != "file"
-                    or source.resolve() != Path(spec["root"]).resolve()
-                    or not direct.get("dir_info", {}).get("editable")):
-                raise ValueError("installed version or editable source does not match the declaration")
+            if dist.version != spec["version"]:
+                raise ValueError("installed version does not match the declaration")
+            if spec["root"] is not None:
+                direct = json.loads(dist.read_text("direct_url.json") or "{}")
+                url = urlsplit(direct.get("url", ""))
+                source = Path(url2pathname(url.path))
+                if url.netloc:
+                    source = Path("//" + url.netloc + str(source))
+                if (url.scheme != "file" or source.resolve() != Path(spec["root"]).resolve()
+                        or not direct.get("dir_info", {}).get("editable")):
+                    raise ValueError("installed editable source does not match the declaration")
+            if spec is host and HostInstallation.detect().identity() != expected:
+                raise ValueError("installed host content does not match the launcher")
             if "entry" in spec:
                 entries = [ep for ep in dist.entry_points if ep.group == GROUP]
                 if len(entries) != 1 or entries[0].name != spec["id"] or entries[0].value != spec["entry"]:

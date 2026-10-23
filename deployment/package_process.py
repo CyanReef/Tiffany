@@ -37,7 +37,7 @@ def run_package_command(command: list[str], log: Path, *, capture=False) -> str:
         start = output.tell()
         child = subprocess.Popen(
             command, stdout=output, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-            env=utf8_environment(), cwd=PROJECT_ROOT, start_new_session=os.name == "posix",
+            env=utf8_environment(), cwd=log.parent, start_new_session=os.name == "posix",
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
         )
         try:

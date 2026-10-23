@@ -1,0 +1,59 @@
+name: Prepare or publish a release
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Validate only, or publish the tested artifacts
+        type: choice
+        default: validate
+        options: [validate, testpypi, pypi]
+
+jobs:
+  verify:
+    uses: ./.github/workflows/server.yml
+  publish:
+    if: inputs.target != 'validate'
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+          path: candidate
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check tag, checksums and select Python distributions
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, json, os, shutil, zipfile
+          root = Path('candidate')
+          for line in (root / 'SHA256SUMS').read_text().splitlines():
+              checksum, name = line.split('  ', 1)
+              assert hashlib.sha256((root / name).read_bytes()).hexdigest() == checksum
+          with zipfile.ZipFile(next(root.glob('*.whl'))) as wheel:
+              version = json.loads(wheel.read('shared/_resources/host.json'))['version']
+          assert os.environ['RELEASE_TAG'] == 'v' + version, 'publish from the matching version tag'
+          Path('upload').mkdir()
+          for path in root.iterdir():
+              if path.suffix == '.whl' or path.name.endswith('.tar.gz'):
+                  shutil.copyfile(path, Path('upload') / path.name)
+          PY
+      - name: Publish to TestPyPI
+        if: inputs.target == 'testpypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: upload/
+          repository-url: https://test.pypi.org/legacy/
+      - name: Publish to PyPI
+        if: inputs.target == 'pypi'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: upload/

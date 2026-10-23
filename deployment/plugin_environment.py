@@ -13,6 +13,7 @@ import tempfile
 import tomllib
 
 from shared.plugins import PluginError, PluginPlan, canonical_name, discover_plugins
+from shared.installation import HostInstallation, application_command
 from .environment import environment_location, prepare_environment
 from .package_process import run_package_command
 from .paths import PROJECT_ROOT
@@ -36,7 +37,7 @@ def read_state(environment: Path) -> dict | None:
     return value
 
 
-def write_state(environment: Path, state: dict) -> None:
+def write_state(environment: Path, state: dict, *, marker_name=MARKER) -> None:
     with tempfile.NamedTemporaryFile("w", dir=environment, prefix=".plugins-", delete=False, encoding="utf-8") as stream:
         staged = Path(stream.name)
         json.dump(state, stream, ensure_ascii=False, indent=2)
@@ -44,25 +45,25 @@ def write_state(environment: Path, state: dict) -> None:
         stream.flush()
         os.fsync(stream.fileno())
     try:
-        os.replace(staged, environment / MARKER)
+        os.replace(staged, environment / marker_name)
     finally:
         staged.unlink(missing_ok=True)
 
 
-def environment_identity(python: Path, plan: PluginPlan, root=PROJECT_ROOT) -> dict:
+def environment_identity(python: Path, plan: PluginPlan, root=None) -> dict:
     return {**plan.identity(root), "python": str(python.resolve()),
             "implementation": sys.implementation.name, "version": list(sys.version_info[:3]),
             "platform": sysconfig.get_platform()}
 
 
-def base_constraints(root: Path) -> str:
+def base_constraints(root: Path | None = None) -> str:
     """Keep PEP 508 markers, but do not propagate hash mode into editable installs."""
     lines = []
-    for line in (root / "requirements-server.lock").read_text(encoding="utf-8").splitlines():
+    host = HostInstallation.detect(root)
+    for line in host.lock_bytes.decode("utf-8").splitlines():
         if re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*==", line):
             lines.append(line.rstrip().removesuffix("\\").rstrip())
-    host = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
-    lines.append(f"{host['name']}=={host['version']}")
+    lines.append(f"{host.name}=={host.version}")
     return "\n".join(lines) + "\n"
 
 
@@ -81,7 +82,7 @@ def verify_prepared(paths, plan: PluginPlan, *, environment: Path | None = None)
         raise PluginError("environment", "readiness", "interpreter changed; run plugins sync")
 
 
-def sync_plugins(paths, python: Path, plan: PluginPlan, *, force=False, root=PROJECT_ROOT) -> None:
+def sync_plugins(paths, python: Path, plan: PluginPlan, *, force=False, root=None) -> None:
     """Caller must hold launcher and application locks for all mutations."""
     environment = python.parent.parent
     state = read_state(environment)
@@ -105,9 +106,10 @@ def sync_plugins(paths, python: Path, plan: PluginPlan, *, force=False, root=PRO
                 raise PluginError(spec.id, "resolution", "plugin distribution name collides with a host dependency")
         constraints.write_text(constraint_text, encoding="utf-8")
         desired = temporary / "plan.json"
-        desired.write_text(json.dumps({"host": str(root), "plugins": [s.record() for s in plan.enabled]}), encoding="utf-8")
-        command = [str(python), "-B", "-m", "pip", "--disable-pip-version-check", "--no-input"]
-        install = ["install", "--cache-dir", str(paths.cache / "pip"), "-c", str(constraints), "-e", str(root)]
+        host = HostInstallation.detect(root)
+        desired.write_text(json.dumps({"host": host.identity(), "plugins": [s.record() for s in plan.enabled]}), encoding="utf-8")
+        command = [*application_command(python, "pip"), "--disable-pip-version-check", "--no-input"]
+        install = ["install", "--cache-dir", str(paths.cache / "pip"), "-c", str(constraints), *host.install_arguments(paths.cache)]
         for spec in plan.enabled:
             install.extend(["-e", str(spec.root)])
         try:
@@ -127,12 +129,13 @@ def sync_plugins(paths, python: Path, plan: PluginPlan, *, force=False, root=PRO
             run_package_command([*command, *install], log)
             run_package_command([*command, "check"], log)
             inventory = run_package_command(
-                [str(python), "-B", "-m", "deployment.plugin_worker", "inspect", str(desired)], log, capture=True)
+                application_command(python, "deployment.plugin_worker", "inspect", str(desired)), log, capture=True)
             installed = json.loads(inventory)
             # An editor may have changed declarations while pip was working.
-            if root == PROJECT_ROOT and environment_identity(python, discover_plugins(paths)) != identity:
+            host.verify()
+            if environment_identity(python, discover_plugins(paths), root) != identity:
                 raise ValueError("plugin declarations changed during synchronization; retry plugins sync")
-            write_state(environment, {"status": "ready", "identity": identity,
+            write_state(environment, {"schema": 2, "status": "ready", "identity": identity,
                                       "managed": sorted(target), "installed": installed})
         except (ValueError, OSError) as error:
             raise PluginError(",".join(s.id for s in plan.enabled) or "environment", "installation", str(error)) from error

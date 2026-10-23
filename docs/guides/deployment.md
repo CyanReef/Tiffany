@@ -33,6 +33,56 @@ bash /opt/Tiffany/start.sh configure --import-config /path/to/old/Tiffany.toml
 
 本地插件放入 `<home>/plugins/` 后沿用同一个启动命令，首次或声明变化时自动同步共享环境。查看与修复使用 `plugins list|sync|check|repair`，启停使用 `plugins enable|disable ID`，完整声明和失败恢复见 [源码插件指南](plugins.md)。插件准备和初始化失败会停止启动。
 
+## 命令行入口
+
+独立安装包与源码可编辑安装都提供 `tiffany` 命令，Linux 和 Windows 使用相同的子命令：
+
+```bash
+tiffany --help
+tiffany --version
+tiffany init
+tiffany configure
+tiffany check-config
+tiffany run
+tiffany plugins list
+```
+
+`init` 首次运行配置向导，并准备服务器和插件环境，不连接平台。重复执行检查原配置并补齐环境，不重写已有配置或凭据；损坏配置明确报错。向导取消不提交新配置。`run` 是默认子命令，直接执行 `tiffany` 也会启动；交互终端缺配置时先初始化。非交互缺配置或 `check-config` 缺配置时退出码为 2，不先安装依赖。`--help` 和 `--version` 不创建运行目录或准备环境。
+
+运行目录优先级为 `--home`、`TIFFANY_HOME`、安装方式默认值。独立安装默认当前实例工作目录的 `data/`；源码脚本和 `python -m pip install -e .` 保持该源码项目的 `data/`。例如 `tiffany init --home /srv/tiffany/data`，后续启动、配置、登录与插件命令均使用相同的 `--home`。命令显示实际路径，子进程收到绝对路径。
+
+源码可编辑安装须保留源码目录，移动后重新安装。切换为独立包时使用 `--home` 指向原数据即可；不自动移动或合并目录。`configure --import-config` 的相对路径按调用命令时的工作目录解析。
+
+命令所在环境需保持可用，Scripts（Windows）或 bin（Linux）目录需在 PATH 中；uv 会安装工具入口，若提示 PATH 未配置，可执行 `uv tool update-shell` 并重开终端。普通虚拟环境激活后即可使用。命令使用安装时的 Python，`TIFFANY_PYTHON` 仅由启动脚本解析。
+
+## 独立安装包与更新
+
+构建者安装 `build`、`setuptools>=77.0.3` 和 `wheel` 后执行：
+
+```bash
+python -B tools/prepare_distribution.py
+```
+
+产物位于 `dist/release/`：wheel、sdist、覆盖 ZIP、`SHA256SUMS` 和独立安装验收脚本。构建器验证许可证、资源与数据排除，并比较直接构建和从 sdist 重建的宿主清单。使用预装构建依赖时加 `--no-isolation`。
+
+已有 uv 的用户安装本地 wheel，然后在实例目录初始化：
+
+```bash
+uv tool install ./tiffany_hook_runtime-0.1.0-py3-none-any.whl --python 3.11
+mkdir tiffany-instance
+cd tiffany-instance
+tiffany init
+tiffany run
+```
+
+首次需要联网下载服务器和插件依赖。程序将自己的已安装内容校验后生成本地宿主 wheel，保存在 `<home>/cache/host/<内容标识>/`，无需再次查找源码或从索引下载 Tiffany 自身。服务器依赖按包内锁文件校验哈希；Tiffany 与插件安装到 home 下的受管环境，uv 工具环境不安装插件。
+
+环境身份同时包含 Python、平台、锁文件和宿主内容；同版本号但代码不同也不会复用旧宿主。已准备环境可离线启动。宿主缓存损坏可重新生成；程序文件完整性失败时重新安装程序。运行环境损坏可在停止应用后运行 `tiffany plugins repair --home <原home>`，保留配置、凭据与业务数据。
+
+更新前停止共享该工具安装的所有实例，保留 home 和旧版本安装包。PyPI 来源在正式发布后使用 `uv tool upgrade tiffany-hook-runtime`；本地 wheel 来源用 `uv tool install --reinstall ./新版本.whl` 安装新包。回滚安装旧 wheel，或用 `uv tool install --reinstall "tiffany-hook-runtime==旧版本"` 固定已发布版本，再使用原 home 启动。旧环境按完整身份复用，程序不自动重写业务数据或清理旧环境。
+
+发布工作流默认 `validate`，完整验收后保留同一批产物。正式上线时维护者需确认包名和账户归属，配置 `testpypi` / `pypi` GitHub environment 与 PyPI Trusted Publisher，并从与版本一致的 `v<version>` 标签手动选择目标。公开上传及索引安装尚需上线验证。
+
 ## Windows 本机测试
 
 安装 Python 3.11+，在项目根目录打开 PowerShell 或 CMD。一行启动，第一次进入同一套配置向导：

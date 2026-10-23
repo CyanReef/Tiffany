@@ -131,12 +131,11 @@ class PluginPlan:
     enabled: tuple[PluginSpec, ...]
     settings: PluginSettings
 
-    def identity(self, root: Path = PROJECT_ROOT) -> dict:
-        source = root / "pyproject.toml"
-        lock = root / "requirements-server.lock"
-        return {"api": API_VERSION, "host": str(root.resolve()),
-                "host_digest": hashlib.sha256(source.read_bytes()).hexdigest(),
-                "lock_digest": hashlib.sha256(lock.read_bytes()).hexdigest(),
+    def identity(self, root: Path | None = None) -> dict:
+        from .installation import HostInstallation, digest
+        host = HostInstallation.detect(root)
+        return {"api": API_VERSION, "host": host.identity(),
+                "lock_digest": digest(host.lock_bytes),
                 "plugins": [spec.record() for spec in self.enabled]}
 
 

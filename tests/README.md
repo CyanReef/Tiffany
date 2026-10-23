@@ -21,6 +21,22 @@ Windows 跳过 POSIX 信号测试，Linux 跳过 Windows 入口测试，Python 3
 
 单元测试隔离外部服务；分层测试使用新 Python 子进程阻止相邻层和可选依赖导入，路径用临时目录。集成测试验证多个真实组件的协作，其中适配器测试会启动本机 HTTP/WebSocket 监听。两类测试均不需要外部 NapCat 或腾讯账号。完整测试先执行 `python -m pip install --require-hashes --only-binary=:all: -r requirements-server.lock`。[CI](../.github/workflows/server.yml) 在 Linux Python 3.11～3.14、Windows Python 3.11/3.14 上运行，并检查发布物不含 data。账号与 24 小时持续运行验收见 [部署说明](../docs/guides/deployment.md#实机验收)。
 
+## 独立安装包验收
+
+在支持的系统及 Python 上准备离线依赖库，再将构建产物和验收脚本复制到没有源码的目录执行：
+
+```bash
+python -m pip download --require-hashes --only-binary=:all: -r requirements-server.lock --dest wheelhouse
+python -B tools/prepare_distribution.py
+python dist/release/installed_acceptance.py --wheel dist/release/tiffany_hook_runtime-0.1.0-py3-none-any.whl --wheelhouse wheelhouse --uv
+```
+
+脚本只依赖标准库，实际安装使用不继承系统包的新环境；`--uv` 要求 PATH 中已有 uv，并设置独立工具、可执行文件和缓存目录。CI 的安装任务只下载候选包与脚本，不检出仓库，锁文件从 wheel 中提取。wheelhouse 需与测试系统和 Python 匹配；其目录会复制到临时目录，测试插件依赖不会写入原依赖库。
+
+验收覆盖初始化、已有文件保护、实际启动器的 OneBot `ping/pong`、有依赖的源码插件、健康接口、正常停止、插件启停、冲突、dirty 状态、缓存/程序完整性、repair，以及新旧版本和同版本不同代码的切换。安装验收阶段使用 pip 无索引模式，服务器依赖严格验证锁文件哈希。
+
+针对性单元测试：`python -B -m unittest tests.unit.deployment.test_installation tests.unit.deployment.test_environment -q`。跨平台全矩阵和真实账号证据分别由 CI、实机验收记录提供。
+
 ## 文件布局
 
 ```text

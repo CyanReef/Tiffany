@@ -143,7 +143,10 @@ class StorageTests(unittest.TestCase):
                 patch("deployment.launcher.setup_logging"):
             self.assertEqual(main(["--home", str(self.paths.home)]), 0)
         prepare.assert_called_once()
-        self.assertIn(str(PROJECT_ROOT / "main.py"), supervise.call_args.args[0])
+        self.assertIn("deployment.app", supervise.call_args.args[0])
+        self.assertIn("-I", supervise.call_args.args[0])
+        self.assertIn("-u", supervise.call_args.args[0])
+        self.assertEqual(supervise.call_args.kwargs["cwd"], self.paths.home)
         self.assertEqual(supervise.call_args.kwargs["env"]["TIFFANY_HOME"], str(self.paths.home))
         self.assertEqual(supervise.call_args.kwargs["env"]["PYTHONUTF8"], "1")
         self.assertEqual(supervise.call_args.kwargs["env"]["PYTHONIOENCODING"], "utf-8")

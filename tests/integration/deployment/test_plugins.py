@@ -89,9 +89,11 @@ asyncio.run(main())
             environment = paths.envs / "real"
             venv.EnvBuilder(with_pip=True).create(environment)
             python = environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-            # A minimal host fixture exercises real metadata checks without downloading the server stack.
-            host = plugin_project(root / "host", "host", name="tiffany-hook-runtime")
-            (host / "requirements-server.lock").write_text("")
+            # Install the actual host: isolated workers cannot borrow code from the checkout.
+            from tools.build_release import build_release
+            with zipfile.ZipFile(build_release(PROJECT_ROOT, root / "host.zip")) as archive:
+                archive.extractall(root)
+            host = root / "Tiffany"
             dependency = plugin_project(root / "dependency", "dependency", name="local-dependency")
             (dependency / "local_dependency/__init__.py").write_text("def reply(text): return 'dependency:' + text\n")
             backend_spec = importlib.util.spec_from_file_location("fixture_backend", dependency / "backend.py")
@@ -99,6 +101,8 @@ asyncio.run(main())
             backend_spec.loader.exec_module(backend)
             wheels = root / "wheels"
             wheels.mkdir()
+            for name in ("setuptools", "wheel", "packaging", "websockets"):
+                installed_wheel(name, wheels)
             backend.build_wheel(str(wheels))
             plugin_project(paths.plugins / "flat", "flat", code="def install(scope, config):\n pass\n",
                            dependencies=("tiffany-hook-runtime>=0.1,<0.2",))

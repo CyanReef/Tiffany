@@ -9,6 +9,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parent.parent
 DIRECTORIES = ("core", "adapters", "clients", "hooks", "deployment", "shared", "examples", "docs", "tools")
 FILES = ("start.sh", "start.bat", "start.ps1", "launcher.py", "main.py", "application.py", "settings.py", "fields.py",
+         "setup.py",
          "pyproject.toml", "requirements.txt", "requirements-server.in", "requirements-server.lock",
          "MANIFEST.in", "README.md", "LICENSE")
 

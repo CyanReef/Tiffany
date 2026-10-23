@@ -5,6 +5,7 @@ from dataclasses import replace
 import subprocess
 
 from shared.plugins import PluginError, discover_plugins
+from shared.installation import application_command
 from .console import utf8_environment
 from .environment import environment_location, prepare_environment
 from .locking import InstanceLock
@@ -48,8 +49,8 @@ def run_plugin_command(paths, operation: str, plugin_id: str | None) -> int:
         if operation == "check":
             if not python.is_file():
                 raise PluginError("environment", "readiness", "run plugins sync first")
-            return subprocess.call([str(python), "-B", "-m", "deployment.plugin_worker", "check", str(paths.home)],
-                                   cwd=PROJECT_ROOT, env=utf8_environment())
+            return subprocess.call(application_command(python, "deployment.plugin_worker", "check", str(paths.home)),
+                                   cwd=paths.home, env=utf8_environment())
         print(f"正在准备共享环境，安装诊断保存在 {paths.logs}")
         python = repair_environment(paths) if operation == "repair" else prepare_environment(paths)
         sync_plugins(paths, python, plan, force=True)

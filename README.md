@@ -22,9 +22,23 @@ Python **3.11+** · **MIT** · 当前版本 **0.1.0**
 
 ## 快速开始
 
-Linux 服务器预装 Python 3.11+ 和 venv，然后在项目根目录启动。长期后台运行可使用 screen。
+支持独立安装包和源码启动。Python 3.11+；长期后台运行可使用 screen。
 
 ### 1. 安装
+
+已有 uv 时，下载或构建 wheel 后，无需克隆仓库即可安装：
+
+```bash
+uv tool install ./tiffany_hook_runtime-0.1.0-py3-none-any.whl --python 3.11
+mkdir tiffany-instance
+cd tiffany-instance
+tiffany init
+tiffany run
+```
+
+首次 `init` 选择 OneBot 或 QQ，并准备独立环境和插件；之后复用当前实例目录的 `data/`。也可用 `--home` 固定位置，重复 `init` 不重写配置和凭据。没有 uv 时可在虚拟环境用 `python -m pip install ./tiffany_hook_runtime-0.1.0-py3-none-any.whl`。发行名为 `tiffany-hook-runtime`；正式发布 PyPI 后可直接按发行名安装，目前不将公开索引安装视为已验证。构建与更新见 [部署指南](docs/guides/deployment.md#独立安装包与更新)。
+
+需要开发源码，或继续使用现有脚本时：
 
 ```bash
 git clone https://github.com/CyanReef/Tiffany.git
@@ -41,6 +55,15 @@ Windows 测试机安装 Python 3.11+ 后，在项目目录的 PowerShell 或 CMD
 ```
 
 首次同样进入配置向导；之后一行命令复用 `data/`。也可在 PowerShell 使用 `.\start.ps1`。两个入口支持 `configure`、`login`、`check-config`、`--home` 等相同参数，并自动寻找 Python；指定解释器和迁移到 Linux 的方法见 [部署文档](docs/guides/deployment.md#windows-本机测试)。仅开发核心时仍可用 `python -m pip install -e .`；独立 Hook 示例无需服务器配置。
+
+也可以在已激活的 Python 环境中，从项目根目录安装命令行入口：
+
+```bash
+python -m pip install -e .
+tiffany run
+```
+
+`tiffany` 复用同一个启动器，支持 `init`、`configure`、`login`、`check-config`、`plugins`、`--version` 和 `--home`；不写子命令也会启动。源码可编辑安装需保留源码目录，默认复用该项目的 `data/`；独立安装使用当前实例的 `data/`。安装环境的 Scripts/bin 目录需在 PATH 中，完整说明见 [命令行入口](docs/guides/deployment.md#命令行入口)。
 
 ### 2. 连接 OneBot / NapCat
 

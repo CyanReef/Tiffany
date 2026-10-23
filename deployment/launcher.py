@@ -4,8 +4,10 @@ import argparse
 import logging
 import subprocess
 import sys
+from pathlib import Path
 
 from settings import load_config
+from shared.installation import HostInstallation, application_command
 from .console import configure_utf8_output, utf8_environment
 from .credentials import CredentialStore
 from .environment import prepare_environment
@@ -19,11 +21,14 @@ logger = logging.getLogger(__name__)
 
 def arguments(argv=None):
     parser = argparse.ArgumentParser(description="Tiffany server launcher")
-    parser.add_argument("command", nargs="?", default="run", choices=("run", "configure", "login", "check-config", "plugins"))
+    parser.add_argument("command", nargs="?", default="run", choices=("run", "init", "configure", "login", "check-config", "plugins"))
     parser.add_argument("plugin_args", nargs="*", help="plugins list|enable ID|disable ID|sync|check|repair")
-    parser.add_argument("--home", help="runtime directory (default: project/data)")
+    parser.add_argument("--home", help="runtime directory (source: project/data; installed: ./data)")
+    parser.add_argument("--version", action="store_true", help="show Tiffany version without preparing an instance")
     parser.add_argument("--import-config", help="import an old TOML file; configure only")
     args = parser.parse_args(argv)
+    if args.version:
+        return args
     if args.import_config and args.command != "configure":
         parser.error("--import-config requires configure")
     if args.command == "plugins":
@@ -42,29 +47,39 @@ def main(argv=None) -> int:
     if sys.version_info < (3, 11):
         print("Tiffany requires Python 3.11+", file=sys.stderr)
         return 2
-    paths = RuntimePaths.resolve(args.home)
     try:
+        if args.version:
+            print(f"Tiffany {HostInstallation.detect().version}")
+            return 0
+        paths = RuntimePaths.resolve(args.home)
+        if args.import_config:
+            args.import_config = str(Path(args.import_config).expanduser().resolve())
         paths.initialize()
         with InstanceLock(paths.run / "launcher.lock"):
             if args.command == "plugins":
                 from .plugin_commands import run_plugin_command
                 return run_plugin_command(paths, args.plugin_args[0],
                                           args.plugin_args[1] if len(args.plugin_args) > 1 else None)
-            if args.command == "run" and not paths.config.exists() and not sys.stdin.isatty():
+            if not paths.config.exists() and (args.command == "check-config" or
+                    args.command in ("run", "init") and not sys.stdin.isatty()):
                 entry = r".\start.bat" if sys.platform == "win32" else "bash start.sh"
-                raise ValueError(f"配置不存在。请先在交互终端执行 {entry} configure（使用相同 --home）。")
+                raise ValueError(f"配置不存在：{paths.config}。请执行 tiffany init --home \"{paths.home}\"；"
+                                 f"源码入口也可使用 {entry} configure（使用相同 --home）。")
+            print(f"Tiffany home: {paths.home}")
             setup_logging(paths.logs / "launcher.log", secrets=CredentialStore(paths).secrets())
             needs_config = args.command in ("configure", "login") or not paths.config.exists()
             if needs_config:
                 with InstanceLock(paths.run / "application.lock"):
                     python = sys.executable if args.import_config else prepare_environment(paths)
-                command = [str(python), "-B", "-m", "deployment.configure", "--home", str(paths.home)]
+                command = (application_command(python, "deployment.configure", "--home", str(paths.home))
+                           if not args.import_config else
+                           [str(python), "-B", "-X", "utf8", "-m", "deployment.configure", "--home", str(paths.home)])
                 if args.command == "login":
                     command.append("--login")
                 if args.import_config:
                     command.extend(["--import-config", args.import_config])
-                code = subprocess.call(command, cwd=PROJECT_ROOT, env=utf8_environment())
-                if code or args.command != "run":
+                code = subprocess.call(command, cwd=paths.home if not args.import_config else PROJECT_ROOT, env=utf8_environment())
+                if code or args.command in ("configure", "login"):
                     return code
                 if not paths.config.exists():
                     return 0  # First-run wizard cancelled.
@@ -82,11 +97,14 @@ def main(argv=None) -> int:
                 plan = discover_plugins(paths)
                 python = prepare_environment(paths)
                 sync_plugins(paths, python, plan)
+            if args.command == "init":
+                print(f"实例已就绪：{paths.home}。运行 tiffany run --home \"{paths.home}\" 启动。")
+                return 0
             environment = dict(utf8_environment(), TIFFANY_HOME=str(paths.home),
                                PYTHONUNBUFFERED="1", PYTHONDONTWRITEBYTECODE="1")
             return Supervisor(config.restart).run(
-                [str(python), "-B", str(PROJECT_ROOT / "main.py"), "--home", str(paths.home)],
-                cwd=PROJECT_ROOT, env=environment,
+                application_command(python, "deployment.app", "--home", str(paths.home)),
+                cwd=paths.home, env=environment,
             )
     except KeyboardInterrupt:
         return 0

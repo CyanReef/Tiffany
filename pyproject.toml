@@ -14,6 +14,9 @@ dependencies = [
     "websockets>=16,<17",
 ]
 
+[project.scripts]
+tiffany = "deployment.launcher:main"
+
 [project.optional-dependencies]
 benchmark = ["matplotlib>=3.9,<4"]
 qqofficial = ["aiohttp>=3.11,<4"]
