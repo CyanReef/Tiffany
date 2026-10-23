@@ -5,13 +5,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.11'
       - run: python -m pip install build 'setuptools>=77.0.3' wheel
       - run: python -B tools/prepare_distribution.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: release-candidate
           path: dist/release/
@@ -29,8 +29,8 @@ jobs:
           - {os: windows-latest, python: '3.14'}
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install build "setuptools>=77.0.3" wheel
@@ -56,11 +56,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       # No checkout: the wheel must supply every runtime module.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8.0.2
         with:
           name: release-candidate
           path: candidate
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: ${{ matrix.python }}
       - name: Verify artifact checksums

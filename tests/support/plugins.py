@@ -78,7 +78,8 @@ def _build(wheel_directory, editable):
     }
     source = root / "src" if (root / "src").is_dir() else root
     if editable:
-        files[name + ".pth"] = str(source) + "\n"
+        # Python 3.11/3.12 decode .pth using the Windows locale, not UTF-8.
+        files[name + ".pth"] = "import sys; sys.path.append(" + ascii(str(source)) + ")\n"
     elif (source / name).is_dir():
         for path in (source / name).rglob("*.py"):
             files[path.relative_to(source).as_posix()] = path.read_text()

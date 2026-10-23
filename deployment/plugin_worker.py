@@ -14,6 +14,7 @@ from urllib.request import url2pathname
 
 from shared.plugins import GROUP, PluginError, canonical_name, discover_plugins
 from shared.installation import HostInstallation
+from .console import configure_utf8_output
 
 
 def inspect_installation(desired: dict) -> dict:
@@ -78,6 +79,7 @@ async def check_registration(paths) -> None:
 
 
 def main(argv=None) -> int:
+    configure_utf8_output()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=("inspect", "check"))
     parser.add_argument("value")

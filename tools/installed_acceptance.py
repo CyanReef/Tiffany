@@ -53,7 +53,7 @@ def build_editable(wheel_directory, config_settings=None, metadata_directory=Non
     project = tomllib.loads((root/'pyproject.toml').read_text())['project']
     name, version = project['name'].replace('-','_'), project['version']
     info = f'{name}-{version}.dist-info'
-    files = {name+'.pth': (str(root)+'\\n').encode(),
+    files = {name+'.pth': ('import sys; sys.path.append('+ascii(str(root))+')\\n').encode('ascii'),
       info+'/METADATA': ('Metadata-Version: 2.1\\nName: '+project['name']+'\\nVersion: '+version+'\\n'+''.join('Requires-Dist: '+r+'\\n' for r in project.get('dependencies',[]))).encode(),
       info+'/WHEEL': b'Wheel-Version: 1.0\\nRoot-Is-Purelib: true\\nTag: py3-none-any\\n',
       info+'/entry_points.txt': b'[tiffany.plugins]\\nprobe = probe_plugin:install\\n'}
@@ -176,7 +176,7 @@ def probe(home, wheelhouse, *, identity_only=False):
         assert main(["init", "--home", str(home)]) == 0
         print("ENVIRONMENT=" + str(environment_location(paths)[0]))
         return
-    assert RuntimePaths.resolve().home == Path.cwd() / "data"
+    assert RuntimePaths.resolve().home == (Path.cwd() / "data").resolve()
     for argument in ("--help", "--version"):
         run([command, argument, "--home", home])
         assert not home.exists()
@@ -286,6 +286,9 @@ def variant(wheel, directory, *, bump=False):
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if reconfigure := getattr(stream, "reconfigure", None):
+            reconfigure(encoding="utf-8", errors="backslashreplace")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--wheel", type=Path)
     parser.add_argument("--wheelhouse", type=Path, required=True)
@@ -299,7 +302,7 @@ def main():
     assert args.wheel and args.wheel.is_file()
     wheel = args.wheel.resolve()
     with tempfile.TemporaryDirectory(prefix="Tiffany installed 中文 ") as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve()
         wheelhouse = root / "wheelhouse"
         shutil.copytree(args.wheelhouse.resolve(), wheelhouse)
         script = root / "acceptance.py"

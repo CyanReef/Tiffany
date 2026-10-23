@@ -45,7 +45,8 @@ class RealPluginEnvironmentTests(unittest.TestCase):
             with patch.dict(os.environ, {"PIP_NO_INDEX": "1", "PIP_FIND_LINKS": wheels.as_uri()}):
                 sync_plugins(paths, python, discover_plugins(paths), root=host)
                 checked = subprocess.run([str(python), "-B", "-m", "deployment.plugin_worker", "check", str(paths.home)],
-                                         cwd=host, capture_output=True, text=True, encoding="utf-8", timeout=20)
+                                         cwd=host, capture_output=True, text=True, encoding="utf-8", timeout=20,
+                                         env=dict(os.environ, PYTHONUTF8="0", PYTHONIOENCODING="cp1252"))
                 self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
             script = '''
 import asyncio, json
